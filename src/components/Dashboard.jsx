@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
+import { API_BASE_URL } from '../config';
 import { onSnapshot, collection, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import Toast from './Toast';
@@ -207,7 +208,7 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchAgents = async () => {
       try {
-        const response = await axios.get('http://localhost:8000/api/users/', {
+        const response = await axios.get(`${API_BASE_URL}/api/users/`, {
           params: { role: 'agent', user_role: user.role, uid: user.uid }
         });
         setAgents(response.data.users || []);
@@ -227,7 +228,7 @@ const Dashboard = () => {
       return;
     }
     try {
-      await axios.post('http://localhost:8000/api/tickets/', newTicket, { params: { uid: user.uid } });
+      await axios.post(`${API_BASE_URL}/api/tickets/`, newTicket, { params: { uid: user.uid } });
       setNewTicket({ title: '', description: '', priority: 'Medium', category: 'General' });
       setShowCreate(false);
       showToast('Ticket created successfully', 'success');

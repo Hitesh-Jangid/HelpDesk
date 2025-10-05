@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
+import { API_BASE_URL } from '../config';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import axios from 'axios';
@@ -45,7 +46,7 @@ const UserManagement = () => {
 
   const updateUserRole = async (firebaseUid, newRole) => {
     try {
-      await axios.patch(`http://localhost:8000/api/users/${firebaseUid}/role/`, 
+      await axios.patch(`${API_BASE_URL}/api/users/${firebaseUid}/role/`, 
         { role: newRole },
         { params: { role: user.role, uid: user.uid } }
       );
@@ -59,7 +60,7 @@ const UserManagement = () => {
   const toggleUserStatus = async (firebaseUid, currentStatus) => {
     try {
       const newStatus = currentStatus === 'active' ? 'blocked' : 'active';
-      await axios.patch(`http://localhost:8000/api/users/${firebaseUid}/status/`, 
+      await axios.patch(`${API_BASE_URL}/api/users/${firebaseUid}/status/`, 
         { status: newStatus },
         { params: { role: user.role, uid: user.uid } }
       );
@@ -72,7 +73,7 @@ const UserManagement = () => {
 
   const verifyAgent = async (firebaseUid) => {
     try {
-      await axios.patch(`http://localhost:8000/api/users/${firebaseUid}/verify/`, 
+      await axios.patch(`${API_BASE_URL}/api/users/${firebaseUid}/verify/`, 
         { verified: true },
         { params: { role: user.role, uid: user.uid } }
       );

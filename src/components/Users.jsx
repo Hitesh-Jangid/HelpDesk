@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
+import { API_BASE_URL } from '../config';
 import Toast from './Toast';
 import './Users.css';
 
@@ -18,7 +19,7 @@ const Users = () => {
 
   const fetchUsers = useCallback(async () => {
     try {
-      const response = await axios.get('http://localhost:8000/api/users/?role=admin');
+      const response = await axios.get(`${API_BASE_URL}/api/users/?role=admin`);
       setUsers(response.data.users);
     } catch {
       showToast('Failed to fetch users');
@@ -40,7 +41,7 @@ const Users = () => {
       return;
     }
     try {
-      await axios.post('http://localhost:8000/api/users/', newUser, { params: { role: user.role, uid: user.uid } });
+      await axios.post(`${API_BASE_URL}/api/users/`, newUser, { params: { role: user.role, uid: user.uid } });
       setNewUser({ email: '', role: 'user' });
       setShowCreate(false);
       fetchUsers();

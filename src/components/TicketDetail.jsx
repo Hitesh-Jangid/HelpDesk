@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
+import { API_BASE_URL } from '../config';
 import { onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import Toast from './Toast';
@@ -63,7 +64,7 @@ const TicketDetail = () => {
 
   const addTimelineEvent = useCallback(async (action) => {
     try {
-      await axios.patch(`http://localhost:8000/api/tickets/${id}/`, { comment: action, version: ticket?.version }, { params: { role: user?.role, uid: user?.uid } });
+      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, { comment: action, version: ticket?.version }, { params: { role: user?.role, uid: user?.uid } });
     } catch {
       // Silent fail for timeline events
     }
@@ -71,7 +72,7 @@ const TicketDetail = () => {
 
   const fetchAgents = useCallback(async () => {
     try {
-      const response = await axios.get('http://localhost:8000/api/users/?role=admin');
+      const response = await axios.get('${API_BASE_URL}/api/users/?role=admin');
       setAgents(response.data.users.filter(u => u.role === 'agent'));
     } catch {
       showToast('Failed to fetch agents');
@@ -269,7 +270,7 @@ const TicketDetail = () => {
         commentData.reply_to = replyTo; // Index of parent event in timeline
       }
       
-      await axios.patch(`http://localhost:8000/api/tickets/${id}/`, commentData, { params: { role: user.role, uid: user.uid } });
+      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, commentData, { params: { role: user.role, uid: user.uid } });
       setComment('');
       setReplyTo(null); // Reset reply state
     } catch {
@@ -284,7 +285,7 @@ const TicketDetail = () => {
     }
     try {
       await axios.patch(
-        `http://localhost:8000/api/tickets/${id}/`, 
+        `${API_BASE_URL}/api/tickets/${id}/`, 
         { 
           comment: replyText, 
           version: ticket.version,
@@ -306,7 +307,7 @@ const TicketDetail = () => {
     }
     try {
       await axios.delete(
-        `http://localhost:8000/api/tickets/${id}/`,
+        `${API_BASE_URL}/api/tickets/${id}/`,
         { 
           params: { role: user.role, uid: user.uid },
           data: { comment_index: commentIndex }
@@ -322,7 +323,7 @@ const TicketDetail = () => {
     try {
       // Only send status update, NOT assigned_to (manual reassignment is separate)
       const updates = { status, version: ticket.version };
-      await axios.patch(`http://localhost:8000/api/tickets/${id}/`, updates, { params: { role: user.role, uid: user.uid } });
+      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, updates, { params: { role: user.role, uid: user.uid } });
       showToast('Ticket updated successfully', 'success');
     } catch {
       showToast('Failed to update ticket');
@@ -335,7 +336,7 @@ const TicketDetail = () => {
       return;
     }
     try {
-      await axios.post(`http://localhost:8000/api/tickets/${id}/feedback/`, 
+      await axios.post(`${API_BASE_URL}/api/tickets/${id}/feedback/`, 
         { rating, feedback }, 
         { params: { uid: user.uid } }
       );
@@ -354,7 +355,7 @@ const TicketDetail = () => {
       return;
     }
     try {
-      await axios.post(`http://localhost:8000/api/tickets/${id}/transfer/`, 
+      await axios.post(`${API_BASE_URL}/api/tickets/${id}/transfer/`, 
         { reason: transferReason }, 
         { params: { role: user.role, uid: user.uid } }
       );
@@ -376,7 +377,7 @@ const TicketDetail = () => {
       return;
     }
     try {
-      await axios.post(`http://localhost:8000/api/tickets/${id}/admin-transfer/`, 
+      await axios.post(`${API_BASE_URL}/api/tickets/${id}/admin-transfer/`, 
         { target_uid: adminTransferTarget, reason: adminTransferReason }, 
         { params: { role: user.role, uid: user.uid } }
       );
@@ -395,7 +396,7 @@ const TicketDetail = () => {
       return;
     }
     try {
-      await axios.patch(`http://localhost:8000/api/tickets/${id}/`, 
+      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, 
         { contact, version: ticket.version }, 
         { params: { role: user.role, uid: user.uid } }
       );
@@ -413,7 +414,7 @@ const TicketDetail = () => {
       return;
     }
     try {
-      await axios.patch(`http://localhost:8000/api/tickets/${id}/`, 
+      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, 
         { github, version: ticket.version }, 
         { params: { role: user.role, uid: user.uid } }
       );
@@ -1088,7 +1089,7 @@ const TicketDetail = () => {
                   onClick={async () => {
                     try {
                       await axios.patch(
-                        `http://localhost:8000/api/tickets/${id}/`, 
+                        `${API_BASE_URL}/api/tickets/${id}/`, 
                         { status: 'Open', version: ticket.version }, 
                         { params: { role: user.role, uid: user.uid } }
                       );

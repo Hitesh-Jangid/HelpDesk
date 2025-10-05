@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
+import { API_BASE_URL } from '../config';
 import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import './Reports.css';
@@ -54,7 +55,7 @@ const Reports = () => {
 
   const fetchSLAReport = useCallback(async () => {
     try {
-      const response = await axios.get('http://localhost:8000/api/reports/sla/', { params: { role: user.role } });
+      const response = await axios.get(`${API_BASE_URL}/api/reports/sla/`, { params: { role: user.role } });
       setReport(response.data);
     } catch (error) {
       console.error(error);

@@ -3,6 +3,7 @@ import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
+import { API_BASE_URL } from '../config';
 import Toast from './Toast';
 import './Login.css';
 
@@ -31,7 +32,7 @@ const Login = () => {
           return;
         }
         
-        const registerResponse = await fetch('http://localhost:8000/api/register/', {
+        const registerResponse = await fetch(`${API_BASE_URL}/api/register/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password, role, name })
@@ -49,7 +50,7 @@ const Login = () => {
         const idToken = await userCredential.user.getIdToken();
         
         // Get complete user data from backend
-        const loginResponse = await fetch('http://localhost:8000/api/login/', {
+        const loginResponse = await fetch(`${API_BASE_URL}/api/login/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id_token: idToken })
@@ -78,7 +79,7 @@ const Login = () => {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const idToken = await userCredential.user.getIdToken();
         
-        const response = await fetch('http://localhost:8000/api/login/', {
+        const response = await fetch(`${API_BASE_URL}/api/login/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id_token: idToken })
