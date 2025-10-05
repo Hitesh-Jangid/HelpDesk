@@ -2,7 +2,9 @@
 
 > Enterprise-grade helpdesk with SLA tracking, RBAC, threaded comments, and real-time updates
 
-[![Django](https://img.shields.io/badge/Django-5.1.2-green.svg)](https://www.djangoproject.com/) [![React](https://img.shields.io/badge/React-18.3.1-blue.svg)](https://react.dev/) [![Firebase](https://img.shields.io/badge/Firebase-11.0.1-orange.svg)](https://firebase.google.com/)
+[![Django](https://img.shields.io/badge/Django-5.1.2-green.svg)](https://www.djangoproject.com/) [![React](https://img.shields.io/badge/React-18.3.1-blue.svg)](https://react.dev/) [![Firebase](https://img.shields.io/badge/Firebase-11.0.1-orange.svg)](https://firebase.google.com/) [![Deploy](https://img.shields.io/badge/Deploy-Render%20%2B%20Vercel-00C7B7.svg)](#-deployment) [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+**🚀 [Live Demo](#) | 📖 [Documentation](./docs/) | 🎯 [Quick Deploy](./DEPLOY.md)**
 
 ---
 
@@ -283,15 +285,44 @@ curl -X POST 'http://localhost:8000/api/tickets/?uid=User-U000001' \
 
 ---
 
-## 📚 Documentation
+## � Deployment
 
+### Quick Deploy (10 minutes)
+
+**Free Hosting:** Backend on [Render](https://render.com) + Frontend on [Vercel](https://vercel.com)
+
+📖 **[Full Deployment Guide](./DEPLOY.md)** - Step-by-step secure deployment
+
+#### Quick Steps:
+
+1. **Backend to Render:**
+   - Connect GitHub repository
+   - Set environment variables (see `.env.example` files)
+   - Deploy in 5 minutes
+
+2. **Frontend to Vercel:**
+   - Import repository
+   - Add Firebase config as env vars
+   - Deploy in 3 minutes
+
+3. **Configure CORS:**
+   - Update `ALLOWED_HOSTS` with your Vercel domain
+   - Test your live application!
+
+**🔒 Security:** All credentials use environment variables. No sensitive data is committed to the repository.
+
+---
+
+## �📚 Documentation
+
+- **[Deployment Guide](DEPLOY.md)** - Secure deployment instructions
 - **[Features Guide](docs/FEATURES.md)** - Complete feature documentation
 - **[Architecture](docs/ARCHITECTURE.md)** - System design & decisions
 - **[Problem Statement](docs/PROBLEM_STATEMENT.md)** - Hackathon requirements
 
 ---
 
-## ‍💻 Author
+## 👨‍💻 Author
 
 **Hitesh Jangid** | HelpDesk System 
 
