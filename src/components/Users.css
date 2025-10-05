@@ -1,0 +1,89 @@
+.users {
+  max-width: 1200px;
+  margin: 2rem auto;
+  padding: 2rem;
+}
+
+.users h2 {
+  color: #1a202c;
+  margin-bottom: 2rem;
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.users .create-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 0.875rem 2rem;
+  border-radius: 10px;
+  border: none;
+  font-weight: 600;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.users .create-form {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  margin-bottom: 2rem;
+}
+
+.users .create-form input, .users .create-form select {
+  width: 100%;
+  padding: 0.875rem 1rem;
+  margin: 0.5rem 0;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 1rem;
+  background: #f8fafc;
+}
+
+.users .create-form input:focus, .users .create-form select:focus {
+  outline: none;
+  border-color: #667eea;
+  background: white;
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+}
+
+.users .create-form button {
+  padding: 0.875rem 2rem;
+  margin-top: 1rem;
+  margin-right: 1rem;
+  border-radius: 10px;
+  font-weight: 600;
+  border: none;
+}
+
+.users .create-form button:first-of-type {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.users .create-form button:last-of-type {
+  background: #e2e8f0;
+  color: #2d3748;
+}
+
+.users-list {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.user-card {
+  background: white;
+  padding: 1.75rem;
+  border-radius: 14px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  transition: all 0.3s;
+  border-left: 5px solid #667eea;
+}
+
+.user-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+}
+
+.user-card p { margin: 0.5rem 0; color: #4a5568; }
+.user-card strong { color: #2d3748; font-weight: 600; }

@@ -1,0 +1,122 @@
+# ===================================
+# PRIVATE PLANNING FILES (NOT SHARED)
+# ===================================
+plan/
+
+# ===================================
+# PYTHON / DJANGO
+# ===================================
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# ===================================
+# NODE.JS / REACT / VITE
+# ===================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Build outputs
+dist/
+dist-ssr/
+*.local
+
+# ===================================
+# FIREBASE
+# ===================================
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebaserc
+
+# Firebase credentials (CRITICAL - DO NOT COMMIT)
+**/firebase-config.js
+**/firebaseConfig.js
+serviceAccountKey.json
+firebase-adminsdk-*.json
+
+# ===================================
+# ENVIRONMENT & SECRETS
+# ===================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ===================================
+# IDE / EDITOR
+# ===================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# ===================================
+# PYTHON CACHE
+# ===================================
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ===================================
+# MISC
+# ===================================
+*.bak
+*.tmp
+.cache/
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
