@@ -5,6 +5,7 @@ services:
     runtime: python
     buildCommand: cd helpdesk && pip install -r requirements.txt
     startCommand: cd helpdesk && gunicorn helpdesk_project.wsgi:application --bind 0.0.0.0:$PORT
+    plan: free
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.0"
@@ -13,25 +14,12 @@ services:
       - key: ALLOWED_HOSTS
         value: ".onrender.com"
 
-  # Frontend React App
-  - type: web
+  # Frontend React App  
+  - type: static
     name: helpdesk-frontend
-    runtime: node
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
-    envVars:
-      - key: VITE_FIREBASE_API_KEY
-        value: "AIzaSyDsSYgcS4gqbVkOelpBXxpn5YguC7AsN34"
-      - key: VITE_FIREBASE_AUTH_DOMAIN
-        value: "helpdesk-b8351.firebaseapp.com"
-      - key: VITE_FIREBASE_PROJECT_ID
-        value: "helpdesk-b8351"
-      - key: VITE_FIREBASE_STORAGE_BUCKET
-        value: "helpdesk-b8351.firebasestorage.app"
-      - key: VITE_FIREBASE_MESSAGING_SENDER_ID
-        value: "71030808775"
-      - key: VITE_FIREBASE_APP_ID
-        value: "1:71030808775:web:b87d0652e256ddbfb89ee2"
+    plan: free
     routes:
       - type: rewrite
         source: /*
