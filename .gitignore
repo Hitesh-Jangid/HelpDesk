@@ -4,6 +4,17 @@
 plan/
 
 # ===================================
+# SENSITIVE CREDENTIALS (CRITICAL!)
+# ===================================
+# Never commit these files!
+serviceAccountKey.json
+**/serviceAccountKey.json
+firebase-adminsdk-*.json
+.env
+.env.local
+.env.*.local
+
+# ===================================
 # PYTHON / DJANGO
 # ===================================
 *.py[cod]
