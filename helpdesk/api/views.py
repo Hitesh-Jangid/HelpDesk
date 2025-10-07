@@ -715,12 +715,26 @@ class SLAReportView(APIView):
             except Exception as e:
                 print(f"Verification check error: {e}")
 
-        tickets_ref = db.collection('tickets').where('status', '==', 'Breached').stream()
+        # Get all tickets and check SLA breach dynamically
+        tickets_ref = db.collection('tickets').stream()
         breached = []
         for doc in tickets_ref:
             ticket = doc.to_dict()
             ticket['id'] = doc.id
-            breached.append(ticket)
+            
+            # Check if ticket has breached SLA (only for open/in-progress tickets)
+            if ticket.get('status') in ['Open', 'In Progress', 'Escalated'] and 'sla_deadline' in ticket:
+                try:
+                    if datetime.now() > ticket['sla_deadline'].replace(tzinfo=None):
+                        ticket['sla_breached'] = True
+                        breached.append(ticket)
+                except (AttributeError, TypeError):
+                    # Handle timezone issues gracefully
+                    pass
+            # Also include tickets that are already marked as Breached
+            elif ticket.get('status') == 'Breached':
+                ticket['sla_breached'] = True
+                breached.append(ticket)
 
         return Response({'breached_tickets': breached, 'count': len(breached)})
 
