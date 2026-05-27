@@ -3,1114 +3,1149 @@ import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
 import { API_BASE_URL } from '../config';
-import { onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { onSnapshot, doc, getDoc, collection, query, where, limit } from 'firebase/firestore';
 import { db } from '../firebase';
-import Toast from './Toast';
-import './TicketDetail.css';
+import {
+  Box, Grid, Typography, Card, CardContent, CardHeader,
+  Chip, Button, IconButton, Select, MenuItem, FormControl, InputLabel,
+  TextField, Divider, Avatar, Tooltip, Paper, Stack, CircularProgress,
+  useTheme, alpha, Skeleton,
+} from '@mui/material';
+import { PageContainer } from './PageLayout';
+import ArrowBackRoundedIcon       from '@mui/icons-material/ArrowBackRounded';
+import SendRoundedIcon            from '@mui/icons-material/SendRounded';
+import ReplyRoundedIcon           from '@mui/icons-material/ReplyRounded';
+import DeleteOutlineRoundedIcon   from '@mui/icons-material/DeleteOutlineRounded';
+import EditNoteRoundedIcon        from '@mui/icons-material/EditNoteRounded';
+import AccessTimeRoundedIcon      from '@mui/icons-material/AccessTimeRounded';
+import PersonOutlineRoundedIcon   from '@mui/icons-material/PersonOutlineRounded';
+import CategoryRoundedIcon        from '@mui/icons-material/CategoryRounded';
+import LocalOfferRoundedIcon      from '@mui/icons-material/LocalOfferRounded';
+import AssignmentRoundedIcon      from '@mui/icons-material/AssignmentRounded';
+import ContactPhoneRoundedIcon    from '@mui/icons-material/ContactPhoneRounded';
+import GitHubIcon                 from '@mui/icons-material/GitHub';
+import SwapHorizRoundedIcon       from '@mui/icons-material/SwapHorizRounded';
+import StarRoundedIcon            from '@mui/icons-material/StarRounded';
+import StarBorderRoundedIcon      from '@mui/icons-material/StarBorderRounded';
+import CheckCircleOutlineIcon     from '@mui/icons-material/CheckCircleOutline';
+import TimerOutlinedIcon          from '@mui/icons-material/TimerOutlined';
+import FlashOnRoundedIcon         from '@mui/icons-material/FlashOnRounded';
+import UpdateRoundedIcon          from '@mui/icons-material/UpdateRounded';
 
-const TicketDetail = () => {
+const STATUS_CHIP = {
+  'Open':      { color: 'info'    },
+  'Escalated': { color: 'error'   },
+  'Resolved':  { color: 'success' },
+  'Closed':    { color: 'default' },
+};
+const PRIORITY_CHIP = {
+  'Critical': { color: 'error'   },
+  'High':     { color: 'warning' },
+  'Medium':   { color: 'info'    },
+  'Low':      { color: 'success' },
+};
+
+function StatusChip({ status }) {
+  const m = STATUS_CHIP[status] || { color: 'default' };
+  return <Chip label={status} color={m.color} size="small" variant="outlined" />;
+}
+function PriorityChip({ priority }) {
+  const m = PRIORITY_CHIP[priority] || { color: 'default' };
+  return <Chip label={priority} color={m.color} size="small" />;
+}
+
+function getRelativeTime(ts) {
+  if (!ts) return '';
+  const d = typeof ts === 'number' ? new Date(ts * 1000) : new Date(ts);
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 2592000) return `${Math.floor(s / 86400)}d ago`;
+  return d.toLocaleDateString();
+}
+
+function getAvatarColor(name) {
+  if (!name) return '#5C6BC0';
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const colors = ['#5C6BC0', '#42A5F5', '#66BB6A', '#FFA726', '#EF5350', '#AB47BC', '#26A69A', '#EC407A'];
+  return colors[Math.abs(hash) % colors.length];
+}
+
+function ThreadEvent({
+  entry,
+  depth = 0,
+  isLastInParentList = false,
+  replyTo,
+  setReplyTo,
+  replyText,
+  setReplyText,
+  addReply,
+  deleteComment,
+  canDelete,
+  isSubmitting,
+  userCache,
+  ticket,
+  user
+}) {
+  const theme = useTheme();
+
+  // Determine if this is a system action or user action
+  const isSystemAction = entry.action === 'auto_assigned' || (!entry.user && entry.action !== 'created');
+  
+  // Get display name
+  let displayName = '@System';
+  if (isSystemAction) {
+    displayName = '@System';
+  } else {
+    const userId = entry.user || (entry.action === 'created' ? ticket.created_by : null);
+    if (userId && userCache[userId]) {
+      displayName = userCache[userId];
+    } else if (entry.username) {
+      displayName = `@${entry.username}`;
+    } else if (userId) {
+      displayName = `@${userId}`;
+    }
+  }
+
+  const userInitial = displayName.includes('@') ? displayName.charAt(1)?.toUpperCase() : 'S';
+  const isReply = depth > 0;
+  
+  // Delete permission
+  const eventCanDelete = !isSystemAction && ((entry.user === user.uid) || user.role === 'admin' || user.role === 'agent');
+
+  // Get action text
+  let actionText = '';
+  if (isReply) {
+    actionText = 'replied';
+  } else if (entry.action === 'created') {
+    actionText = 'created ticket';
+  } else if (entry.action === 'auto_assigned') {
+    actionText = 'was auto-assigned';
+  } else if (entry.action === 'commented') {
+    actionText = 'commented';
+  } else if (entry.action === 'status_changed') {
+    actionText = 'changed status';
+  } else if (entry.action === 'reassigned') {
+    actionText = 'reassigned ticket';
+  } else if (entry.action === 'transferred') {
+    actionText = 'transferred ticket';
+  } else if (entry.action === 'admin_transfer') {
+    actionText = 'transferred ticket';
+  } else if (entry.action === 'reopened') {
+    actionText = 'reopened ticket';
+  } else if (entry.action === 'contact_added') {
+    actionText = 'added contact';
+  } else if (entry.action === 'github_added') {
+    actionText = 'linked GitHub';
+  } else if (entry.action === 'rating_submitted') {
+    actionText = 'rated ticket';
+  } else {
+    actionText = entry.action.replace(/_/g, ' ');
+  }
+
+  const time = getRelativeTime(entry.timestamp?.seconds || entry.timestamp);
+  const isReplying = replyTo === entry.idx;
+
+  return (
+    <Box sx={{ ml: depth > 0 ? `${depth * 3}rem` : 0, position: 'relative' }}>
+      <Box sx={{ display: 'flex', gap: isReply ? 1.25 : 1.75, position: 'relative', py: 1.5 }}>
+        
+        {/* Visual Roadmap Connector line for top-level parent events (depth 0), not the last one */}
+        {depth === 0 && !isLastInParentList && (
+          <Box
+            sx={{
+              position: 'absolute',
+              left: 18,
+              top: 48,
+              bottom: -16,
+              width: 2,
+              bgcolor: 'divider',
+              zIndex: 1,
+            }}
+          />
+        )}
+
+        {/* Visual Connector line between parent and replies */}
+        {entry.replies && entry.replies.length > 0 && (
+          <Box
+            sx={{
+              position: 'absolute',
+              left: isReply ? 13 : 18,
+              top: isReply ? 38 : 48,
+              bottom: -16,
+              width: 2,
+              bgcolor: 'divider',
+              zIndex: 1,
+            }}
+          />
+        )}
+
+        {/* Left Side: Avatar/Icon */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0, zIndex: 2 }}>
+          <Avatar
+            sx={{
+              width: isReply ? 26 : 36,
+              height: isReply ? 26 : 36,
+              bgcolor: isSystemAction ? 'action.hover' : getAvatarColor(displayName),
+              color: isSystemAction ? 'text.secondary' : '#fff',
+              fontSize: isReply ? '0.75rem' : '0.875rem',
+              fontWeight: 600,
+              border: isSystemAction ? `1px solid ${theme.palette.divider}` : `1px solid ${alpha('#fff', 0.15)}`,
+              boxShadow: isSystemAction ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
+            }}
+          >
+            {isSystemAction ? '🤖' : userInitial}
+          </Avatar>
+        </Box>
+
+        {/* Right Side: Body */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 0.5 }}>
+            <Typography variant="subtitle2" fontWeight={700} color="text.primary" sx={{ fontSize: isReply ? '0.8125rem' : '0.875rem' }}>
+              {displayName}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem', fontWeight: 500 }}>
+              {actionText}
+            </Typography>
+            <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.6875rem' }}>
+              · {time}
+            </Typography>
+          </Box>
+
+          {/* Comment Bubble (Only render if there is a comment/body) */}
+          {entry.comment && (
+            <Box
+              sx={{
+                py: 1,
+                px: 1.5,
+                borderRadius: isReply ? '0px 12px 12px 12px' : '0px 16px 16px 16px',
+                bgcolor: isSystemAction ? 'action.hover' : isReply ? 'transparent' : alpha(theme.palette.primary.main, 0.04),
+                border: `1px solid ${isReply || isSystemAction ? theme.palette.divider : alpha(theme.palette.primary.main, 0.08)}`,
+                display: 'inline-block',
+                maxWidth: '100%',
+                wordBreak: 'break-word',
+              }}
+            >
+              <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.6, fontSize: isReply ? '0.8125rem' : '0.875rem' }}>
+                {renderTextWithLinks(entry.comment)}
+              </Typography>
+            </Box>
+          )}
+
+          {/* Action buttons */}
+          <Box sx={{ display: 'flex', gap: 1.5, mt: 0.5, alignItems: 'center' }}>
+            <Typography
+              variant="caption"
+              color="primary"
+              fontWeight={600}
+              sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' }, fontSize: '0.6875rem' }}
+              onClick={() => setReplyTo(replyTo === entry.idx ? null : entry.idx)}
+            >
+              Reply
+            </Typography>
+            {eventCanDelete && (entry.action === 'commented' || isReply) && (
+              <Typography
+                variant="caption"
+                color="error"
+                fontWeight={600}
+                sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' }, fontSize: '0.6875rem' }}
+                onClick={() => deleteComment(entry.idx)}
+              >
+                Delete
+              </Typography>
+            )}
+          </Box>
+
+          {/* Inline Reply Form */}
+          {isReplying && (
+            <Box sx={{ mt: 1.5, display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+              <TextField
+                placeholder={`Reply to this ${isReply ? 'reply' : 'action'}…`}
+                size="small"
+                multiline
+                maxRows={4}
+                fullWidth
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                disabled={isSubmitting}
+                autoFocus
+              />
+              <Button
+                variant="contained"
+                size="small"
+                onClick={() => addReply(entry.idx)}
+                disabled={!replyText.trim() || isSubmitting}
+                sx={{ minWidth: 40, height: 36 }}
+              >
+                {isSubmitting ? <CircularProgress size={18} /> : <SendRoundedIcon fontSize="small" />}
+              </Button>
+            </Box>
+          )}
+        </Box>
+      </Box>
+
+      {/* Render replies recursively */}
+      {entry.replies && entry.replies.length > 0 && (
+        <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+          {entry.replies.map((reply) => (
+            <ThreadEvent
+              key={reply.idx}
+              entry={reply}
+              depth={depth + 1}
+              isLastInParentList={false}
+              replyTo={replyTo}
+              setReplyTo={setReplyTo}
+              replyText={replyText}
+              setReplyText={setReplyText}
+              addReply={addReply}
+              deleteComment={deleteComment}
+              canDelete={canDelete}
+              isSubmitting={isSubmitting}
+              userCache={userCache}
+              ticket={ticket}
+              user={user}
+            />
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+const renderTextWithLinks = (text) => {
+  if (!text) return null;
+  const ticketRegex = /(T\d{9})\b/g;
+  const parts = text.split(ticketRegex);
+  if (parts.length <= 1) return text;
+  return parts.map((part, index) => {
+    if (part.match(/^T\d{9}$/)) {
+      return (
+        <Link key={index} to={`/tickets/${part}`} style={{ textDecoration: 'underline', color: '#1976d2', fontWeight: 600 }}>
+          {part}
+        </Link>
+      );
+    }
+    return part;
+  });
+};
+
+export default function TicketDetail() {
   const { id } = useParams();
   const { user } = useAuth();
-  const [ticket, setTicket] = useState(null);
-  const [comment, setComment] = useState('');
-  const [status, setStatus] = useState('');
-  const [assignedTo, setAssignedTo] = useState('');
-  const [agents, setAgents] = useState([]);
-  const [timeRemaining, setTimeRemaining] = useState('');
-  const milestonesTracked = useRef(new Set());
-  const [toast, setToast] = useState({ message: '', type: '' });
-  const [rating, setRating] = useState(0);
-  const [feedback, setFeedback] = useState('');
-  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
-  const [transferReason, setTransferReason] = useState('');
-  const [showTransferForm, setShowTransferForm] = useState(false);
-  const [showAdminTransferForm, setShowAdminTransferForm] = useState(false);
-  const [adminTransferTarget, setAdminTransferTarget] = useState('');
-  const [adminTransferReason, setAdminTransferReason] = useState('');
-  const [userCache, setUserCache] = useState({});
-  const [contact, setContact] = useState('');
-  const [github, setGithub] = useState('');
-  const [showContactForm, setShowContactForm] = useState(false);
-  const [showGithubForm, setShowGithubForm] = useState(false);
-  const [replyTo, setReplyTo] = useState(null); // For threading: stores parent event index
-  const [replyText, setReplyText] = useState(''); // Reply comment text
+  const theme = useTheme();
 
-  const showToast = useCallback((message, type = 'error') => {
-    setToast({ message, type });
-    setTimeout(() => setToast({ message: '', type: '' }), 3000);
+  const [ticket, setTicket]     = useState(null);
+  const [comment, setComment]   = useState('');
+  const [status, setStatus]     = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
+  const [agents, setAgents]     = useState([]);
+  const [slaText, setSlaText]   = useState('');
+  const [slaOverdue, setSlaOverdue] = useState(false);
+  const milestonesRef = useRef(new Set());
+
+  const [userCache, setUserCache] = useState({});
+  const [replyTo, setReplyTo]     = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [contact, setContact]   = useState('');
+  const [github, setGithub]     = useState('');
+  const [showContact, setShowContact] = useState(false);
+  const [showGithub, setShowGithub]   = useState(false);
+  const [showTransfer, setShowTransfer]   = useState(false);
+  const [showAdminXfer, setShowAdminXfer] = useState(false);
+  const [transferReason, setTransferReason] = useState('');
+  const [adminXferTarget, setAdminXferTarget] = useState('');
+  const [adminXferReason, setAdminXferReason] = useState('');
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [rating, setRating]     = useState(0);
+  const [feedback, setFeedback] = useState('');
+
+  const cacheRef = useRef({});
+
+  const showToast = useCallback(() => {}, []); // simplified — use alerts inline
+
+  const getUser = useCallback(async (uid) => {
+    if (!uid || cacheRef.current[uid]) return;
+    cacheRef.current[uid] = 'loading';
+    try {
+      const d = await getDoc(doc(db, 'users', uid));
+      if (d.exists()) {
+        const u = d.data();
+        const disp = u.username || u.email?.split('@')[0] || uid;
+        cacheRef.current[uid] = disp;
+        setUserCache(p => ({ ...p, [uid]: disp }));
+      } else {
+        cacheRef.current[uid] = uid;
+      }
+    } catch {
+      delete cacheRef.current[uid];
+    }
   }, []);
 
-  // Helper function to fetch and format user display
-  const getUserDisplay = useCallback(async (uid) => {
-    if (!uid) return 'Unassigned';
-    if (userCache[uid]) return userCache[uid];
-    
-    try {
-      const userDoc = await getDoc(doc(db, 'users', uid));
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        const username = userData.username || userData.email?.split('@')[0] || 'User';
-        const customUid = userData.custom_uid || uid.substring(0, 8);
-        // custom_uid already includes role prefix like "User-U000001" or "AG00001"
-        const display = `@${username} (${customUid})`;
-        setUserCache(prev => ({ ...prev, [uid]: display }));
-        return display;
-      }
-    } catch (error) {
-      console.error('Error fetching user:', error);
-    }
-    return uid;
-  }, [userCache]);
-
-  const addTimelineEvent = useCallback(async (action) => {
+  const addEvent = useCallback(async (action) => {
     try {
       await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, { comment: action, version: ticket?.version }, { params: { role: user?.role, uid: user?.uid } });
-    } catch {
-      // Silent fail for timeline events
-    }
-  }, [id, ticket?.version, user?.role, user?.uid]);
+    } catch {}
+  }, [id, ticket?.version, user]);
 
   const fetchAgents = useCallback(async () => {
     try {
-      const response = await axios.get('${API_BASE_URL}/api/users/?role=admin');
-      setAgents(response.data.users.filter(u => u.role === 'agent'));
-    } catch {
-      showToast('Failed to fetch agents');
-    }
-  }, [showToast]);
+      const r = await axios.get(`${API_BASE_URL}/api/users/`, { params: { role: 'admin', user_role: user?.role, uid: user?.uid } });
+      setAgents((r.data.users || []).filter(u => u.role === 'agent'));
+    } catch {}
+  }, [user]);
 
-  const fetchTicket = useCallback(() => {
-    const docRef = doc(db, 'tickets', id);
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        
-        // Role-based access control
-        if (user.role === 'user' && data.created_by !== user.uid) {
-          showToast('You do not have permission to view this ticket');
+  useEffect(() => {
+    if (!user) return;
+    let unsub;
+    if (id.startsWith('T')) {
+      const q = query(collection(db, 'tickets'), where('ticket_id', '==', id), limit(1));
+      unsub = onSnapshot(q, (snap) => {
+        if (snap.empty) {
           setTicket(null);
           return;
         }
-        
+        const docSnap = snap.docs[0];
+        const data = docSnap.data();
+        if (user.role === 'user' && data.created_by !== user.uid) { setTicket(null); return; }
         setTicket({ ...data, id: docSnap.id });
         setStatus(data.status);
         setAssignedTo(data.assigned_to || '');
-      } else {
-        showToast('Ticket not found');
-      }
-    }, (error) => {
-      showToast('Failed to load ticket: ' + error.message);
-    });
-    return unsubscribe;
-  }, [id, showToast, user]);
+      });
+    } else {
+      unsub = onSnapshot(doc(db, 'tickets', id), (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data();
+        if (user.role === 'user' && data.created_by !== user.uid) { setTicket(null); return; }
+        setTicket({ ...data, id: snap.id });
+        setStatus(data.status);
+        setAssignedTo(data.assigned_to || '');
+      });
+    }
+    if (user.role === 'admin') fetchAgents();
+    return () => unsub && unsub();
+  }, [id, user, fetchAgents]);
 
   useEffect(() => {
-    if (user) {
-      const unsubscribe = fetchTicket();
-      if (user.role === 'admin') fetchAgents();
-      return () => unsubscribe();
+    if (!ticket) return;
+    getUser(ticket.created_by);
+    getUser(ticket.assigned_to);
+    if (ticket.resolved_by) getUser(ticket.resolved_by);
+    if (ticket.timeline) {
+      ticket.timeline.forEach(e => {
+        if (e.user) getUser(e.user);
+      });
     }
-  }, [fetchTicket, fetchAgents, user]);
+  }, [ticket, getUser]);
 
-  // Fetch user display names for ticket participants
+  // SLA Timer
   useEffect(() => {
-    if (ticket) {
-      if (ticket.created_by) getUserDisplay(ticket.created_by);
-      if (ticket.assigned_to) getUserDisplay(ticket.assigned_to);
-      if (ticket.resolved_by) getUserDisplay(ticket.resolved_by);
-      if (ticket.timeline) {
-        ticket.timeline.forEach(entry => {
-          if (entry.user) getUserDisplay(entry.user);
-        });
+    if (!ticket?.sla_deadline) return;
+    const update = () => {
+      if (ticket.status === 'Resolved' || ticket.status === 'Closed') {
+        setSlaText('SLA Met'); setSlaOverdue(false); return;
       }
-    }
-  }, [ticket, getUserDisplay]);
-
-  // Timer for SLA countdown
-  useEffect(() => {
-    if (!ticket?.sla_deadline) {
-      setTimeRemaining('No SLA Set');
-      return;
-    }
-
-    // IMPORTANT: Stop timer if ticket is resolved or closed
-    if (ticket.status === 'Resolved' || ticket.status === 'Closed') {
-      let createdAt, resolvedAt;
-      
-      // Parse created_at
-      if (ticket.created_at?.toDate) {
-        createdAt = ticket.created_at.toDate();
-      } else if (typeof ticket.created_at === 'number') {
-        createdAt = new Date(ticket.created_at * 1000);
-      } else {
-        createdAt = new Date(ticket.created_at);
-      }
-      
-      // Parse resolved_at
-      if (ticket.resolved_at?.toDate) {
-        resolvedAt = ticket.resolved_at.toDate();
-      } else if (typeof ticket.resolved_at === 'number') {
-        resolvedAt = new Date(ticket.resolved_at * 1000);
-      } else if (ticket.resolved_at) {
-        resolvedAt = new Date(ticket.resolved_at);
-      } else {
-        // If no resolved_at, use updated_at or current time
-        if (ticket.updated_at?.toDate) {
-          resolvedAt = ticket.updated_at.toDate();
-        } else if (typeof ticket.updated_at === 'number') {
-          resolvedAt = new Date(ticket.updated_at * 1000);
-        } else {
-          resolvedAt = new Date(ticket.updated_at);
-        }
-      }
-      
-      // Calculate time taken
-      const timeTaken = resolvedAt - createdAt;
-      const days = Math.floor(timeTaken / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((timeTaken % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      const minutes = Math.floor((timeTaken % (1000 * 60 * 60)) / (1000 * 60));
-      
-      let timeStr = '';
-      if (days > 0) timeStr += `${days}d `;
-      if (hours > 0) timeStr += `${hours}h `;
-      timeStr += `${minutes}m`;
-      
-      setTimeRemaining(`SLA Fulfilled (${timeStr.trim()})`);
-      return; // Don't run the timer
-    }
-
-    const updateTimer = () => {
-      let deadline;
-      
-      // Handle Firestore Timestamp
-      if (ticket.sla_deadline?.toDate) {
-        deadline = ticket.sla_deadline.toDate();
-      } 
-      // Handle Unix timestamp (seconds)
-      else if (typeof ticket.sla_deadline === 'number') {
-        deadline = new Date(ticket.sla_deadline * 1000);
-      } 
-      // Handle ISO string or Date object
-      else {
-        deadline = new Date(ticket.sla_deadline);
-      }
-      
-      // Check if deadline is valid
-      if (!deadline || isNaN(deadline.getTime())) {
-        setTimeRemaining('Invalid Deadline');
-        console.error('Invalid SLA deadline:', ticket.sla_deadline);
-        return;
-      }
-      
-      const now = new Date();
-      const diff = deadline - now;
-
+      let dl;
+      if (typeof ticket.sla_deadline === 'number') dl = new Date(ticket.sla_deadline * 1000);
+      else if (ticket.sla_deadline?.toDate) dl = ticket.sla_deadline.toDate();
+      else dl = new Date(ticket.sla_deadline);
+      if (!dl || isNaN(dl.getTime())) { setSlaText('—'); return; }
+      const diff = dl - Date.now();
       if (diff <= 0) {
-        // Calculate how much time over SLA
-        const overTime = -diff;
-        const days = Math.floor(overTime / (1000 * 60 * 60 * 24));
-        const hours = Math.floor((overTime % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-        const minutes = Math.floor((overTime % (1000 * 60 * 60)) / (1000 * 60));
-        const seconds = Math.floor((overTime % (1000 * 60)) / 1000);
-
-        let overTimeStr = '';
-        if (days > 0) overTimeStr += `${days}d `;
-        if (hours > 0) overTimeStr += `${hours}h `;
-        if (minutes > 0) overTimeStr += `${minutes}m `;
-        overTimeStr += `${seconds}s`;
-
-        setTimeRemaining(`Delayed +${overTimeStr.trim()}`);
-        
-        if (!milestonesTracked.current.has('overdue')) {
-          milestonesTracked.current.add('overdue');
-          addTimelineEvent('SLA Breached');
-        }
+        const od = -diff;
+        const d = Math.floor(od / 86400000), h = Math.floor((od % 86400000) / 3600000), m = Math.floor((od % 3600000) / 60000), s = Math.floor((od % 60000) / 1000);
+        setSlaText(`Overdue +${d > 0 ? `${d}d ` : ''}${h}h ${m}m ${s}s`);
+        setSlaOverdue(true);
+        if (!milestonesRef.current.has('overdue')) { milestonesRef.current.add('overdue'); addEvent('SLA Breached'); }
         return;
       }
-
-      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-
-      setTimeRemaining(`In Progress - ${days}d ${hours}h ${minutes}m ${seconds}s`);
+      const d = Math.floor(diff / 86400000), h = Math.floor((diff % 86400000) / 3600000), m = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000);
+      setSlaText(d > 0 ? `${d}d ${h}h remaining` : `${h}h ${m}m ${s}s`);
+      setSlaOverdue(false);
 
       // Check milestones only once
-      if (days === 0 && hours === 1 && minutes === 0 && seconds === 0 && !milestonesTracked.current.has('1h')) {
-        milestonesTracked.current.add('1h');
-        addTimelineEvent('1 hour remaining');
-      } else if (days === 0 && hours === 0 && minutes === 30 && seconds === 0 && !milestonesTracked.current.has('30m')) {
-        milestonesTracked.current.add('30m');
-        addTimelineEvent('30 minutes remaining');
-      } else if (days === 0 && hours === 0 && minutes === 10 && seconds === 0 && !milestonesTracked.current.has('10m')) {
-        milestonesTracked.current.add('10m');
-        addTimelineEvent('10 minutes remaining');
+      if (d === 0 && h === 1 && m === 0 && s === 0 && !milestonesRef.current.has('1h')) {
+        milestonesRef.current.add('1h'); addEvent('1 hour remaining');
+      } else if (d === 0 && h === 0 && m === 30 && s === 0 && !milestonesRef.current.has('30m')) {
+        milestonesRef.current.add('30m'); addEvent('30 minutes remaining');
+      } else if (d === 0 && h === 0 && m === 10 && s === 0 && !milestonesRef.current.has('10m')) {
+        milestonesRef.current.add('10m'); addEvent('10 minutes remaining');
       }
     };
+    update();
+    const iv = setInterval(update, 1000);
+    return () => clearInterval(iv);
+  }, [ticket?.sla_deadline, ticket?.status, addEvent]);
 
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [ticket?.sla_deadline, addTimelineEvent]);
-
-  const addComment = async () => {
-    if (!comment.trim()) {
-      showToast('Comment cannot be empty');
-      return;
-    }
+  const postComment = async () => {
+    if (!comment.trim() || isSubmitting) return;
+    setIsSubmitting(true);
     try {
-      // If replying to an event, include parent_id
-      const commentData = { 
-        comment, 
-        version: ticket.version 
-      };
-      
-      // Add reply metadata if this is a reply
-      if (replyTo !== null) {
-        commentData.reply_to = replyTo; // Index of parent event in timeline
-      }
-      
-      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, commentData, { params: { role: user.role, uid: user.uid } });
+      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, { comment, version: ticket.version }, { params: { role: user.role, uid: user.uid } });
       setComment('');
-      setReplyTo(null); // Reset reply state
-    } catch {
-      showToast('Failed to add comment');
-    }
+    } catch {}
+    setIsSubmitting(false);
   };
 
-  const addReply = async (parentIndex) => {
-    if (!replyText.trim()) {
-      showToast('Reply cannot be empty');
-      return;
-    }
+  const postReply = async (parentIdx) => {
+    if (!replyText.trim() || isSubmitting) return;
+    setIsSubmitting(true);
     try {
-      await axios.patch(
-        `${API_BASE_URL}/api/tickets/${id}/`, 
-        { 
-          comment: replyText, 
-          version: ticket.version,
-          reply_to: parentIndex
-        }, 
-        { params: { role: user.role, uid: user.uid } }
-      );
-      showToast('Reply added successfully', 'success');
-      setReplyText('');
-      setReplyTo(null);
-    } catch (error) {
-      showToast(error.response?.data?.error?.message || 'Failed to add reply');
-    }
+      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, { comment: replyText, version: ticket.version, reply_to: parentIdx }, { params: { role: user.role, uid: user.uid } });
+      setReplyText(''); setReplyTo(null);
+    } catch {}
+    setIsSubmitting(false);
   };
 
-  const deleteComment = async (commentIndex) => {
-    if (!window.confirm('Are you sure you want to delete this comment?')) {
-      return;
-    }
+  const deleteComment = async (idx) => {
+    if (!window.confirm('Delete this comment?')) return;
     try {
-      await axios.delete(
-        `${API_BASE_URL}/api/tickets/${id}/`,
-        { 
-          params: { role: user.role, uid: user.uid },
-          data: { comment_index: commentIndex }
-        }
-      );
-      showToast('Comment deleted successfully', 'success');
-    } catch (error) {
-      showToast(error.response?.data?.error?.message || 'Failed to delete comment');
-    }
+      await axios.delete(`${API_BASE_URL}/api/tickets/${id}/`, { params: { role: user.role, uid: user.uid }, data: { comment_index: idx } });
+    } catch {}
   };
 
   const updateTicket = async () => {
     try {
-      // Only send status update, NOT assigned_to (manual reassignment is separate)
-      const updates = { status, version: ticket.version };
-      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, updates, { params: { role: user.role, uid: user.uid } });
-      showToast('Ticket updated successfully', 'success');
-    } catch {
-      showToast('Failed to update ticket');
-    }
+      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, { status, version: ticket.version }, { params: { role: user.role, uid: user.uid } });
+    } catch {}
+  };
+
+  const assignTicket = async () => {
+    try {
+      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, { assigned_to: assignedTo, version: ticket.version }, { params: { role: user.role, uid: user.uid } });
+    } catch {}
   };
 
   const submitFeedback = async () => {
-    if (rating === 0) {
-      showToast('Please select a rating');
-      return;
-    }
+    if (!rating) return;
     try {
-      await axios.post(`${API_BASE_URL}/api/tickets/${id}/feedback/`, 
-        { rating, feedback }, 
-        { params: { uid: user.uid } }
-      );
-      showToast('Feedback submitted successfully', 'success');
-      setShowFeedbackForm(false);
-      setRating(0);
-      setFeedback('');
-    } catch (error) {
-      showToast(error.response?.data?.error?.message || 'Failed to submit feedback');
-    }
+      await axios.post(`${API_BASE_URL}/api/tickets/${id}/feedback/`, { rating, feedback }, { params: { uid: user.uid } });
+      setShowFeedback(false);
+    } catch {}
   };
 
-  const transferTicket = async () => {
-    if (!transferReason.trim()) {
-      showToast('Please provide a reason for transfer');
-      return;
-    }
+  const doTransfer = async () => {
+    if (!transferReason.trim()) return;
     try {
-      await axios.post(`${API_BASE_URL}/api/tickets/${id}/transfer/`, 
-        { reason: transferReason }, 
-        { params: { role: user.role, uid: user.uid } }
-      );
-      showToast('Ticket transferred to admin successfully', 'success');
-      setShowTransferForm(false);
-      setTransferReason('');
-    } catch (error) {
-      showToast(error.response?.data?.error?.message || 'Failed to transfer ticket');
-    }
+      await axios.post(`${API_BASE_URL}/api/tickets/${id}/transfer/`, { reason: transferReason }, { params: { role: user.role, uid: user.uid } });
+      setShowTransfer(false); setTransferReason('');
+    } catch {}
   };
 
-  const adminTransferTicket = async () => {
-    if (!adminTransferTarget) {
-      showToast('Please select a target user');
-      return;
-    }
-    if (!adminTransferReason.trim()) {
-      showToast('Please provide a reason for transfer');
-      return;
-    }
+  const doAdminXfer = async () => {
+    if (!adminXferTarget || !adminXferReason.trim()) return;
     try {
-      await axios.post(`${API_BASE_URL}/api/tickets/${id}/admin-transfer/`, 
-        { target_uid: adminTransferTarget, reason: adminTransferReason }, 
-        { params: { role: user.role, uid: user.uid } }
-      );
-      showToast('Ticket transferred successfully', 'success');
-      setShowAdminTransferForm(false);
-      setAdminTransferTarget('');
-      setAdminTransferReason('');
-    } catch (error) {
-      showToast(error.response?.data?.error?.message || 'Failed to transfer ticket');
-    }
+      await axios.post(`${API_BASE_URL}/api/tickets/${id}/admin-transfer/`, { target_uid: adminXferTarget, reason: adminXferReason }, { params: { role: user.role, uid: user.uid } });
+      setShowAdminXfer(false);
+    } catch {}
   };
 
-  const addContactInfo = async () => {
-    if (!contact.trim()) {
-      showToast('Please enter contact information');
-      return;
-    }
+  const addContact = async () => {
+    if (!contact.trim()) return;
     try {
-      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, 
-        { contact, version: ticket.version }, 
-        { params: { role: user.role, uid: user.uid } }
-      );
-      showToast('Contact added successfully', 'success');
-      setShowContactForm(false);
-      setContact('');
-    } catch (error) {
-      showToast('Failed to add contact');
-    }
+      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, { contact, version: ticket.version }, { params: { role: user.role, uid: user.uid } });
+      setShowContact(false); setContact('');
+    } catch {}
   };
 
-  const addGithubInfo = async () => {
-    if (!github.trim()) {
-      showToast('Please enter GitHub link');
-      return;
-    }
+  const addGithub = async () => {
+    if (!github.trim()) return;
     try {
-      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, 
-        { github, version: ticket.version }, 
-        { params: { role: user.role, uid: user.uid } }
-      );
-      showToast('GitHub link added successfully', 'success');
-      setShowGithubForm(false);
-      setGithub('');
-    } catch (error) {
-      showToast('Failed to add GitHub link');
-    }
+      await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, { github, version: ticket.version }, { params: { role: user.role, uid: user.uid } });
+      setShowGithub(false); setGithub('');
+    } catch {}
   };
 
-  if (!user) return <div>Please login</div>;
-  if (!ticket) return <div className="loading">Loading...</div>;
+  if (!user) return null;
 
-  const createdDate = ticket.created_at?.toDate ? ticket.created_at.toDate() : new Date(ticket.created_at);
-  const timeAgo = createdDate ? Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24 * 30)) : 0;
+  if (!ticket) {
+    return (
+      <PageContainer maxWidth="xl">
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}>
+          <CircularProgress />
+        </Box>
+      </PageContainer>
+    );
+  }
+
+  const isLocked   = ticket.status === 'Closed';
+  const canModify  = user.role === 'agent' || user.role === 'admin';
+  const canDelete  = user.role === 'admin' || ticket.created_by === user.uid;
+  const created    = ticket.created_at?.toDate ? ticket.created_at.toDate() : new Date(ticket.created_at || 0);
+
+  // Build threads
+  const events = ticket.timeline || [];
+  const allEventsSorted = [...events]
+    .map((entry, idx) => ({ ...entry, idx }))
+    .sort((a, b) => {
+      const timeA = a.timestamp?.seconds || a.timestamp || 0;
+      const timeB = b.timestamp?.seconds || b.timestamp || 0;
+      const valA = typeof timeA === 'number' ? timeA : timeA.seconds;
+      const valB = typeof timeB === 'number' ? timeB : timeB.seconds;
+      return valA - valB;
+    });
+
+  const buildThreads = () => {
+    const threads = [];
+    const eventMap = new Map();
+    
+    // First pass: create map of all events
+    allEventsSorted.forEach(event => {
+      eventMap.set(event.idx, { ...event, replies: [] });
+    });
+    
+    // Second pass: organize into threads
+    allEventsSorted.forEach(event => {
+      const eventData = eventMap.get(event.idx);
+      if (event.reply_to !== undefined && event.reply_to !== null) {
+        const parent = eventMap.get(event.reply_to);
+        if (parent) {
+          parent.replies.push(eventData);
+        } else {
+          threads.push(eventData);
+        }
+      } else {
+        threads.push(eventData);
+      }
+    });
+    
+    return threads;
+  };
+
+  const threads = buildThreads();
+
+  const SidebarItem = ({ icon, label, value, color }) => (
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.25, py: 0.5 }}>
+      <Box sx={{ color: color || 'text.disabled', display: 'flex', alignItems: 'center', mt: 0.1 }}>
+        {icon}
+      </Box>
+      <Box>
+        <Typography variant="caption" color="text.disabled" display="block" sx={{ lineHeight: 1, mb: 0.25 }}>
+          {label}
+        </Typography>
+        <Typography variant="body2" fontWeight={500} color={color || 'text.primary'}>
+          {value}
+        </Typography>
+      </Box>
+    </Box>
+  );
 
   return (
-    <>
-      <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: '', type: '' })} />
-      <div className="ticket-detail-container">
-        {/* Header */}
-        <div className="ticket-header">
-          <div className="header-breadcrumb">
-            <Link to="/tickets" className="breadcrumb-link">Tickets</Link>
-            <span className="breadcrumb-separator">/</span>
-            <span className="breadcrumb-current">
-              {ticket.ticket_id || `#${ticket.id.substring(0, 8)}`} - {ticket.title}
-            </span>
-          </div>
-          <div className="header-actions">
-            {ticket.github_link && (
-              <button 
-                className="btn-secondary"
-                onClick={() => window.open(ticket.github_link, '_blank')}
+    <PageContainer maxWidth="xl">
+      {/* Back */}
+      <Button
+        component={Link}
+        to="/tickets"
+        startIcon={<ArrowBackRoundedIcon />}
+        sx={{ mb: 2.5, color: 'text.secondary', fontWeight: 500, fontSize: '0.8125rem' }}
+      >
+        All Tickets
+      </Button>
+
+      <Grid container spacing={2.5} alignItems="flex-start">
+        {/* ── Main Column ── */}
+        <Grid item xs={12} lg={8}>
+          {/* Title Card */}
+          <Card sx={{ mb: 2 }}>
+            <CardContent sx={{ p: 3, '&:last-child': { pb: 3 } }}>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, mb: 2 }}>
+                <Typography variant="h6" fontWeight={700} sx={{ flex: 1, lineHeight: 1.4 }}>
+                  {ticket.title}
+                </Typography>
+                <Stack direction="row" spacing={1} flexShrink={0}>
+                  <StatusChip status={ticket.status} />
+                  <PriorityChip priority={ticket.priority} />
+                </Stack>
+              </Box>
+
+              <Stack direction="row" spacing={2} flexWrap="wrap" divider={<Typography variant="caption" color="text.disabled">·</Typography>}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <AssignmentRoundedIcon sx={{ fontSize: 13 }} />
+                  <strong style={{ fontFamily: 'monospace', color: theme.palette.primary.main }}>
+                    {ticket.ticket_id || `#${id.substring(0, 8)}`}
+                  </strong>
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <CategoryRoundedIcon sx={{ fontSize: 13 }} />
+                  {ticket.category}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <AccessTimeRoundedIcon sx={{ fontSize: 13 }} />
+                  {created.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </Typography>
+                {userCache[ticket.created_by] && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <PersonOutlineRoundedIcon sx={{ fontSize: 13 }} />
+                    {userCache[ticket.created_by]}
+                  </Typography>
+                )}
+              </Stack>
+
+              {ticket.description && (
+                <Box
+                  sx={{
+                    mt: 2, p: 2, borderRadius: 2,
+                    bgcolor: 'action.hover',
+                    border: `1px solid ${theme.palette.divider}`,
+                  }}
+                >
+                  <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.7 }}>
+                    {renderTextWithLinks(ticket.description)}
+                  </Typography>
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Activity Card */}
+          <Card>
+            <CardHeader
+              title={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <EditNoteRoundedIcon color="action" fontSize="small" />
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    Activity & Comments
+                  </Typography>
+                  <Chip label={threads.length} size="small" sx={{ height: 18, fontSize: '0.7rem' }} />
+                </Box>
+              }
+              sx={{ pb: 1, borderBottom: `1px solid ${theme.palette.divider}` }}
+            />
+            <CardContent sx={{ p: 2.5 }}>
+              {threads.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 4, color: 'text.disabled' }}>
+                  <EditNoteRoundedIcon sx={{ fontSize: 40, mb: 1 }} />
+                  <Typography variant="body2">No activity yet</Typography>
+                </Box>
+              ) : (
+                <Stack spacing={2}>
+                  {threads.map((thread, idx) => (
+                    <ThreadEvent
+                      key={thread.idx}
+                      entry={thread}
+                      depth={0}
+                      isLastInParentList={idx === threads.length - 1}
+                      replyTo={replyTo}
+                      setReplyTo={setReplyTo}
+                      replyText={replyText}
+                      setReplyText={setReplyText}
+                      addReply={postReply}
+                      deleteComment={deleteComment}
+                      canDelete={canDelete}
+                      isSubmitting={isSubmitting}
+                      userCache={userCache}
+                      ticket={ticket}
+                      user={user}
+                    />
+                  ))}
+                </Stack>
+              )}
+            </CardContent>
+
+            {/* Compose Box */}
+            {canModify && !isLocked && (
+              <Box
+                sx={{
+                  px: 2.5, pb: 2.5,
+                  borderTop: `1px solid ${theme.palette.divider}`,
+                  pt: 2,
+                }}
               >
-                Open GitHub
-              </button>
-            )}
-            <div className="user-avatar">{user.email.charAt(0).toUpperCase()}</div>
-            <span className={`status-badge status-${ticket.status.toLowerCase().replace(' ', '-')}`}>
-              {ticket.status}
-            </span>
-          </div>
-        </div>
-
-        <div className="ticket-content-wrapper">
-          {/* Left: Activity Feed */}
-          <div className="ticket-activity">
-            <div className="activity-header">
-              <h2 className="ticket-number">{ticket.ticket_id || `#${ticket.id.substring(0, 8)}`}</h2>
-              <h3 className="ticket-title">{ticket.title}</h3>
-            </div>
-
-            {/* Activity Feed - No Tabs */}
-            <div className="activity-feed">
-              {/* Description Section */}
-              <div className="description-section">
-                <h4>Description</h4>
-                <p className="description-text">{ticket.description}</p>
-                <div className="meta-info">
-                  <span className="meta-item">
-                    <strong>Reporter:</strong> {userCache[ticket.created_by] || user.email.split('@')[0]}
-                  </span>
-                  <span className="meta-item">
-                    <strong>Created:</strong> {(() => {
-                      const createdDate = ticket.created_at?.toDate ? ticket.created_at.toDate() : 
-                                        typeof ticket.created_at === 'number' ? new Date(ticket.created_at * 1000) : 
-                                        new Date(ticket.created_at);
-                      return createdDate.toLocaleString('en-US', { 
-                        month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' 
-                      });
-                    })()}
-                  </span>
-                </div>
-              </div>
-
-              {/* Activity Timeline - Delivery App Style (All Events Chronological) */}
-              <div className="activity-list">
-                <h4>Activity</h4>
-                
-                {ticket.timeline && ticket.timeline.length > 0 && (() => {
-                  // Show ALL events chronologically (OLDEST FIRST - top to bottom)
-                  const allEvents = ticket.timeline
-                    .map((entry, idx) => ({ ...entry, idx }))
-                    .sort((a, b) => {
-                      const timeA = a.timestamp?.seconds || a.timestamp || 0;
-                      const timeB = b.timestamp?.seconds || b.timestamp || 0;
-                      return (typeof timeA === 'number' ? timeA : timeA.seconds) - (typeof timeB === 'number' ? timeB : timeB.seconds);
-                    });
-                  
-                  // Build nested structure for threaded replies
-                  const buildThreads = () => {
-                    const threads = [];
-                    const eventMap = new Map();
-                    
-                    // First pass: create map of all events
-                    allEvents.forEach(event => {
-                      eventMap.set(event.idx, { ...event, replies: [] });
-                    });
-                    
-                    // Second pass: organize into threads
-                    allEvents.forEach(event => {
-                      const eventData = eventMap.get(event.idx);
-                      if (event.reply_to !== undefined && event.reply_to !== null) {
-                        // This is a reply - add to parent's replies
-                        const parent = eventMap.get(event.reply_to);
-                        if (parent) {
-                          parent.replies.push(eventData);
-                        } else {
-                          // Parent not found, treat as top-level
-                          threads.push(eventData);
-                        }
-                      } else {
-                        // Top-level event
-                        threads.push(eventData);
-                      }
-                    });
-                    
-                    return threads;
-                  };
-                  
-                  const threads = buildThreads();
-                  
-                  // Recursive function to render event and its replies
-                  const renderEvent = (entry, depth = 0, isLastInParentList = false) => {
-                    // Determine if this is a system action or user action
-                    const isSystemAction = entry.action === 'auto_assigned' || (!entry.user && entry.action !== 'created');
-                    
-                    // Get display name with format: @username (Role-ID) or @System
-                    let displayName = '@System';
-                    if (isSystemAction) {
-                      displayName = '@System';
-                    } else {
-                      // For all user actions, use userCache or construct the format
-                      const userId = entry.user || (entry.action === 'created' ? ticket.created_by : null);
-                      if (userId && userCache[userId]) {
-                        displayName = userCache[userId];
-                      } else if (entry.username) {
-                        displayName = `@${entry.username}`;
-                      } else if (userId) {
-                        displayName = `@${userId}`;
-                      }
-                    }
-                    
-                    const userInitial = displayName.includes('@') ? displayName.charAt(1)?.toUpperCase() : 'S';
-                    const isReply = depth > 0;
-                    
-                    // Delete permission: creator OR admin OR agent
-                    const canDelete = !isSystemAction && ((entry.user === user.uid) || user.role === 'admin' || user.role === 'agent');
-                    
-                    // Get action text
-                    let actionText = '';
-                    if (isReply) {
-                      actionText = 'replied';
-                    } else if (entry.action === 'created') {
-                      actionText = 'created ticket';
-                    } else if (entry.action === 'auto_assigned') {
-                      actionText = 'was auto-assigned';
-                    } else if (entry.action === 'commented') {
-                      actionText = 'commented';
-                    } else if (entry.action === 'status_changed') {
-                      actionText = 'changed status';
-                    } else if (entry.action === 'reassigned') {
-                      actionText = 'reassigned ticket';
-                    } else if (entry.action === 'transferred') {
-                      actionText = 'transferred ticket';
-                    } else if (entry.action === 'admin_transfer') {
-                      actionText = 'transferred ticket';
-                    } else if (entry.action === 'reopened') {
-                      actionText = 'reopened ticket';
-                    } else if (entry.action === 'contact_added') {
-                      actionText = 'added contact';
-                    } else if (entry.action === 'github_added') {
-                      actionText = 'linked GitHub';
-                    } else if (entry.action === 'rating_submitted') {
-                      actionText = 'rated ticket';
-                    } else {
-                      actionText = entry.action.replace(/_/g, ' ');
-                    }
-                    
-                    // Format timestamp
-                    const formatTime = () => {
-                      if (!entry.timestamp) return 'N/A';
-                      const timestamp = entry.timestamp.seconds ? entry.timestamp.seconds * 1000 : (typeof entry.timestamp === 'number' ? entry.timestamp * 1000 : entry.timestamp);
-                      const date = new Date(timestamp);
-                      const now = new Date();
-                      const diff = now - date;
-                      const minutes = Math.floor(diff / 60000);
-                      const hours = Math.floor(minutes / 60);
-                      const days = Math.floor(hours / 24);
-                      
-                      if (minutes < 1) return 'Just now';
-                      if (minutes < 60) return `${minutes}m ago`;
-                      if (hours < 24) return `${hours}h ago`;
-                      if (days < 7) return `${days}d ago`;
-                      return date.toLocaleDateString();
-                    };
-                    
-                    return (
-                      <React.Fragment key={entry.idx}>
-                        <div className={`activity-entry ${isReply ? 'is-reply' : ''}`} style={{ marginLeft: depth > 0 ? `${depth * 2.5}rem` : '0' }}>
-                          <div className="activity-icon-wrapper">
-                            {/* Roadmap connector - ONLY for top-level parent events (depth 0), and not the last one */}
-                            {depth === 0 && !isLastInParentList && <div className="roadmap-connector"></div>}
-                            <div className={`activity-icon ${isSystemAction ? 'system-icon' : 'user-icon'}`}>
-                              {isSystemAction ? '🤖' : userInitial}
-                            </div>
-                          </div>
-                          <div className="activity-body">
-                            <div className="activity-header-line">
-                              <strong>{displayName}</strong>
-                              <span className="activity-action">{actionText}</span>
-                              <span className="activity-time">{formatTime()}</span>
-                            </div>
-                            
-                            {/* Comment/Description */}
-                            {entry.comment && (
-                              <div className="activity-comment">{entry.comment}</div>
-                            )}
-                            
-                            {/* Action Buttons */}
-                            <div className="activity-actions-bar">
-                              {/* Reply Button - show on ALL events (can reply to anything) */}
-                              <button 
-                                className="reply-btn"
-                                onClick={() => setReplyTo(replyTo === entry.idx ? null : entry.idx)}
-                              >
-                                💬 Reply
-                              </button>
-                              
-                              {/* Delete Button - only for comments/replies by creator/admin/agent */}
-                              {canDelete && (entry.action === 'commented' || isReply) && (
-                                <button 
-                                  className="delete-btn"
-                                  onClick={() => deleteComment(entry.idx)}
-                                >
-                                  🗑️ Delete
-                                </button>
-                              )}
-                            </div>
-                            
-                            {/* Reply Form */}
-                            {replyTo === entry.idx && (
-                              <div className="reply-form">
-                                <textarea
-                                  className="reply-textarea"
-                                  placeholder={`Reply to this ${isReply ? 'reply' : 'action'}...`}
-                                  value={replyText}
-                                  onChange={(e) => setReplyText(e.target.value)}
-                                  rows="2"
-                                />
-                                <div className="reply-actions">
-                                  <button 
-                                    className="btn-reply" 
-                                    onClick={() => addReply(entry.idx)}
-                                    disabled={!replyText.trim()}
-                                  >
-                                    Send Reply
-                                  </button>
-                                  <button 
-                                    className="btn-cancel-reply" 
-                                    onClick={() => { setReplyTo(null); setReplyText(''); }}
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        
-                        {/* Render nested replies recursively - always pass false for isLastInParentList since replies are never part of main roadmap */}
-                        {entry.replies && entry.replies.length > 0 && entry.replies.map((reply) => 
-                          renderEvent(reply, depth + 1, false)
-                        )}
-                      </React.Fragment>
-                    );
-                  };
-                  
-                  // Render all top-level threads - only the LAST top-level thread gets isLastInParentList=true
-                  return threads.map((thread, idx) => renderEvent(thread, 0, idx === threads.length - 1));
-                })()}
-              </div>
-
-              {/* Add Comment Box - For Agent/Admin */}
-              {(user.role === 'agent' || user.role === 'admin') && (
-                <div className="add-comment-section">
-                  <h4>Add Comment</h4>
-                  <textarea
-                    className="comment-textarea"
-                    placeholder="Add a comment to describe the issue, solution, or any notes..."
+                <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" sx={{ mb: 1 }}>
+                  Add Comment
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                  <Avatar sx={{ width: 32, height: 32, bgcolor: getAvatarColor(user.username || user.email), fontSize: '0.8125rem', flexShrink: 0, mt: 0.25, border: `1px solid ${alpha('#fff', 0.2)}`, boxShadow: `0 1px 3px rgba(0,0,0,0.1)` }}>
+                    {(user.username || user.email || 'U')[0].toUpperCase()}
+                  </Avatar>
+                  <TextField
+                    placeholder="Describe the action taken, share an update…"
+                    multiline
+                    rows={2}
+                    fullWidth
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
-                    rows="3"
+                    disabled={isSubmitting}
                   />
-                  <button 
-                    className="btn-add-comment" 
-                    onClick={addComment}
-                    disabled={!comment.trim()}
-                  >
-                    Post Comment
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Right: Sidebar */}
-          <div className="ticket-sidebar">
-            <div className="sidebar-section">
-              <h3 className="sidebar-user-name">
-                {user.username || user.name || user.email.split('@')[0]}
-              </h3>
-              {user.custom_uid && (
-                <div className="sidebar-uid">{user.custom_uid}</div>
-              )}
-            </div>
-
-            {/* Rating and Feedback - Only show if ticket is Resolved/Closed AND user is the creator */}
-            {(ticket.status === 'Resolved' || ticket.status === 'Closed') && 
-             ticket.created_by === user.uid && 
-             ticket.rating && (
-            <div className="sidebar-section">
-              <div className="sidebar-label">Your Rating</div>
-              <div className="rating-stars">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <span key={star} className={star <= (ticket.rating || 0) ? 'star-filled' : 'star-empty'}>
-                    {star <= (ticket.rating || 0) ? '★' : '☆'}
-                  </span>
-                ))}
-              </div>
-            </div>
-            )}
-
-            {(ticket.status === 'Resolved' || ticket.status === 'Closed') && 
-             ticket.created_by === user.uid && 
-             ticket.feedback && (
-            <div className="sidebar-section">
-              <div className="sidebar-label">Your Feedback</div>
-              <div className="sidebar-value">{ticket.feedback}</div>
-            </div>
-            )}
-
-            <div className="sidebar-section">
-              <div className="sidebar-label">SLA Status</div>
-              <div className={`sidebar-value ${
-                timeRemaining.includes('Fulfilled') ? 'sla-success' : 
-                timeRemaining.includes('Delayed') ? 'sla-failed' : 
-                timeRemaining.includes('In Progress') ? 'sla-progress' : 
-                'sla-default'
-              }`}>
-                {timeRemaining}
-              </div>
-            </div>
-
-            {/* Feedback Button (for users on resolved/closed tickets) - Right after SLA */}
-            {user.role === 'user' && 
-             ticket.created_by === user.uid && 
-             (ticket.status === 'Resolved' || ticket.status === 'Closed') && 
-             !ticket.rating && 
-             !showFeedbackForm && (
-              <div className="sidebar-actions">
-                <button onClick={() => setShowFeedbackForm(true)} className="btn-primary-full">
-                  ⭐ Submit Feedback
-                </button>
-              </div>
-            )}
-
-            {/* Feedback Form - Right after button */}
-            {showFeedbackForm && (
-              <div className="feedback-form">
-                <label className="feedback-label">Rate your experience:</label>
-                <div className="star-rating">
-                  {[1, 2, 3, 4, 5].map(star => (
-                    <span
-                      key={star}
-                      onClick={() => setRating(star)}
-                      className={`star ${rating >= star ? 'star-filled' : 'star-empty'}`}
-                    >
-                      ★
+                  <Tooltip title="Post comment">
+                    <span>
+                      <IconButton
+                        color="primary"
+                        onClick={postComment}
+                        disabled={!comment.trim() || isSubmitting}
+                        sx={{ mt: 0.25 }}
+                      >
+                        {isSubmitting ? <CircularProgress size={18} /> : <SendRoundedIcon />}
+                      </IconButton>
                     </span>
-                  ))}
-                </div>
-                <label className="feedback-label">Additional comments:</label>
-                <textarea
-                  value={feedback}
-                  onChange={(e) => setFeedback(e.target.value)}
-                  className="feedback-textarea"
-                  placeholder="Tell us about your experience..."
-                  rows={4}
+                  </Tooltip>
+                </Box>
+              </Box>
+            )}
+          </Card>
+        </Grid>
+
+        {/* ── Sidebar ── */}
+        <Grid item xs={12} lg={4}>
+          <Stack spacing={2}>
+            {/* Details Card */}
+            <Card>
+              <CardHeader
+                title={<Typography variant="subtitle2" fontWeight={700}>Details</Typography>}
+                sx={{ pb: 1, borderBottom: `1px solid ${theme.palette.divider}` }}
+              />
+              <CardContent sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                <SidebarItem
+                  icon={<TimerOutlinedIcon sx={{ fontSize: 16 }} />}
+                  label="SLA Remaining"
+                  value={slaText || '—'}
+                  color={slaOverdue ? theme.palette.error.main : ticket.status === 'Resolved' || ticket.status === 'Closed' ? theme.palette.success.main : undefined}
                 />
-                <div className="feedback-actions">
-                  <button onClick={submitFeedback} className="btn-primary-small">Submit Feedback</button>
-                  <button onClick={() => { setShowFeedbackForm(false); setRating(0); setFeedback(''); }} className="btn-secondary-small">Cancel</button>
-                </div>
-              </div>
-            )}
-
-            <div className="sidebar-section">
-              <div className="sidebar-label">Assigned To</div>
-              <div className="sidebar-value">
-                {userCache[ticket.assigned_to] || ticket.assigned_to || 'Unassigned'}
-              </div>
-            </div>
-
-            <div className="sidebar-section">
-              <div className="sidebar-label">Created By</div>
-              <div className="sidebar-value">
-                {userCache[ticket.created_by] || ticket.created_by || 'Unknown'}
-              </div>
-            </div>
-
-            <div className="sidebar-section">
-              <div className="sidebar-label">Source</div>
-              <div className="sidebar-value">Portal</div>
-            </div>
-
-            <div className="sidebar-section">
-              <div className="sidebar-label">Ticket type</div>
-              <div className="sidebar-value">{ticket.category}</div>
-            </div>
-
-            <div className="sidebar-section">
-              <div className="sidebar-label">Priority</div>
-              <div className="sidebar-value priority-high">{ticket.priority}</div>
-            </div>
-
-            {/* Labels/Tags - Industry standard feature */}
-            {ticket.labels && ticket.labels.length > 0 && (
-            <div className="sidebar-section">
-              <div className="sidebar-label">Labels</div>
-              <div className="label-list">
-                {ticket.labels.map((label, idx) => (
-                  <span key={idx} className="label-tag">{label}</span>
-                ))}
-              </div>
-            </div>
-            )}
-
-            <div className="sidebar-section">
-              <div className="sidebar-label">Created At</div>
-              <div className="sidebar-value">
-                {(() => {
-                  let date;
-                  if (ticket.created_at?.toDate) {
-                    date = ticket.created_at.toDate();
-                  } else if (typeof ticket.created_at === 'number') {
-                    date = new Date(ticket.created_at * 1000);
-                  } else {
-                    date = new Date(ticket.created_at);
-                  }
-                  return date.toLocaleString('en-US', { 
-                    year: 'numeric', 
-                    month: 'short', 
-                    day: 'numeric', 
-                    hour: '2-digit', 
-                    minute: '2-digit' 
-                  });
-                })()}
-              </div>
-            </div>
-
-            {(ticket.status === 'Resolved' || ticket.status === 'Closed') && ticket.resolved_at && (
-              <>
-                <div className="sidebar-section">
-                  <div className="sidebar-label">Resolved At</div>
-                  <div className="sidebar-value sla-success">
-                    {(() => {
-                      let date;
-                      if (ticket.resolved_at?.toDate) {
-                        date = ticket.resolved_at.toDate();
-                      } else if (typeof ticket.resolved_at === 'number') {
-                        date = new Date(ticket.resolved_at * 1000);
-                      } else {
-                        date = new Date(ticket.resolved_at);
-                      }
-                      return date.toLocaleString('en-US', { 
-                        year: 'numeric', 
-                        month: 'short', 
-                        day: 'numeric', 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                      });
-                    })()}
-                  </div>
-                </div>
-
-                {ticket.resolved_by && (
-                  <div className="sidebar-section">
-                    <div className="sidebar-label">Resolved By</div>
-                    <div className="sidebar-value">
-                      {userCache[ticket.resolved_by] || ticket.resolved_by || 'Unknown'}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-
-            {(ticket.status === 'Resolved' || ticket.status === 'Closed') && ticket.completed_at && (
-              <div className="sidebar-section">
-                <div className="sidebar-label">Completed At</div>
-                <div className="sidebar-value sla-success">
-                  {(() => {
-                    let date;
-                    if (ticket.completed_at?.toDate) {
-                      date = ticket.completed_at.toDate();
-                    } else if (typeof ticket.completed_at === 'number') {
-                      date = new Date(ticket.completed_at * 1000);
-                    } else {
-                      date = new Date(ticket.completed_at);
-                    }
-                    return date.toLocaleString('en-US', { 
-                      year: 'numeric', 
-                      month: 'short', 
-                      day: 'numeric', 
-                      hour: '2-digit', 
-                      minute: '2-digit' 
-                    });
+                <SidebarItem
+                  icon={<PersonOutlineRoundedIcon sx={{ fontSize: 16 }} />}
+                  label="Assigned To"
+                  value={userCache[ticket.assigned_to] || 'Unassigned'}
+                />
+                <SidebarItem
+                  icon={<PersonOutlineRoundedIcon sx={{ fontSize: 16 }} />}
+                  label="Created By"
+                  value={userCache[ticket.created_by] || 'Unknown'}
+                />
+                <SidebarItem
+                  icon={<CategoryRoundedIcon sx={{ fontSize: 16 }} />}
+                  label="Category"
+                  value={ticket.category}
+                />
+                <SidebarItem
+                  icon={<LocalOfferRoundedIcon sx={{ fontSize: 16 }} />}
+                  label="Priority"
+                  value={ticket.priority}
+                  color={ticket.priority === 'Critical' || ticket.priority === 'High' ? theme.palette.error.main : undefined}
+                />
+                <SidebarItem
+                  icon={<AccessTimeRoundedIcon sx={{ fontSize: 16 }} />}
+                  label="Created At"
+                  value={(() => {
+                    const c = ticket.created_at?.toDate ? ticket.created_at.toDate() : typeof ticket.created_at === 'number' ? new Date(ticket.created_at * 1000) : new Date(ticket.created_at || 0);
+                    return c.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
                   })()}
-                </div>
-              </div>
-            )}
-
-            <div className="sidebar-section">
-              <div className="sidebar-label">Assigned To</div>
-              <div className="sidebar-value">
-                {ticket.assigned_to ? (userCache[ticket.assigned_to] || 'Loading...') : 'Unassigned'}
-              </div>
-            </div>
-
-            {/* Contact - Only visible to assigned agent/admin and ticket creator */}
-            {(user.role === 'admin' || ticket.assigned_to === user.uid || ticket.created_by === user.uid) && (
-            <div className="sidebar-section">
-              <div className="sidebar-label">Contact</div>
-              {ticket.contact ? (
-                <div className="sidebar-value">{ticket.contact}</div>
-              ) : (ticket.created_by === user.uid) && (showContactForm ? (
-                <div className="inline-form">
-                  <input
-                    type="text"
-                    value={contact}
-                    onChange={(e) => setContact(e.target.value)}
-                    placeholder="Phone or email"
-                    className="inline-input"
-                  />
-                  <button onClick={addContactInfo} className="btn-save">Save</button>
-                  <button onClick={() => setShowContactForm(false)} className="btn-cancel">×</button>
-                </div>
-              ) : (
-                <button onClick={() => setShowContactForm(true)} className="btn-link">Add Contact</button>
-              ))}
-            </div>
-            )}
-
-            {/* GitHub - Only visible to assigned agent/admin and ticket creator */}
-            {(user.role === 'admin' || ticket.assigned_to === user.uid || ticket.created_by === user.uid) && (
-            <div className="sidebar-section">
-              <div className="sidebar-label">GitHub</div>
-              {ticket.github ? (
-                <a href={ticket.github} target="_blank" rel="noopener noreferrer" className="sidebar-value github-link">
-                  {ticket.github}
-                </a>
-              ) : (ticket.created_by === user.uid) && (showGithubForm ? (
-                <div className="inline-form">
-                  <input
-                    type="url"
-                    value={github}
-                    onChange={(e) => setGithub(e.target.value)}
-                    placeholder="GitHub issue URL"
-                    className="inline-input"
-                  />
-                  <button onClick={addGithubInfo} className="btn-save">Save</button>
-                  <button onClick={() => setShowGithubForm(false)} className="btn-cancel">×</button>
-                </div>
-              ) : (
-                <button onClick={() => setShowGithubForm(true)} className="btn-link">Add GitHub</button>
-              ))}
-            </div>
-            )}
-
-            {(user.role === 'agent' || user.role === 'admin') && (
-              <div className="sidebar-actions">
-                <select value={status} onChange={(e) => setStatus(e.target.value)} className="sidebar-select">
-                  <option>Open</option>
-                  <option>In Progress</option>
-                  <option>Resolved</option>
-                  {user.role === 'admin' && <option>Closed</option>}
-                </select>
-                {user.role === 'admin' && (
-                  <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} className="sidebar-select">
-                    <option value="">Unassigned</option>
-                    {agents.map(agent => (
-                      <option key={agent.uid} value={agent.uid}>{agent.email}</option>
-                    ))}
-                  </select>
-                )}
-                <button onClick={updateTicket} className="btn-primary-full">Update Ticket</button>
-                
-                {/* Transfer to Admin Button (for agents only) */}
-                {user.role === 'agent' && !showTransferForm && !showAdminTransferForm && (
-                  <button onClick={() => setShowTransferForm(true)} className="btn-warning-full">
-                    Transfer to Admin
-                  </button>
-                )}
-                
-                {/* Admin Transfer Button */}
-                {user.role === 'admin' && !showTransferForm && !showAdminTransferForm && (
-                  <button onClick={() => setShowAdminTransferForm(true)} className="btn-info-full">
-                    Transfer Ticket
-                  </button>
-                )}
-                
-                {/* Agent Transfer Form (to Admin) */}
-                {showTransferForm && (
-                  <div className="transfer-form">
-                    <label className="transfer-label">Reason for escalation:</label>
-                    <textarea
-                      value={transferReason}
-                      onChange={(e) => setTransferReason(e.target.value)}
-                      className="transfer-textarea"
-                      placeholder="Explain why this ticket needs admin attention..."
-                      rows={3}
+                />
+                {(ticket.status === 'Resolved' || ticket.status === 'Closed') && ticket.resolved_at && (
+                  <>
+                    <SidebarItem
+                      icon={<AccessTimeRoundedIcon sx={{ fontSize: 16 }} />}
+                      label="Resolved At"
+                      value={(() => {
+                        const r = ticket.resolved_at?.toDate ? ticket.resolved_at.toDate() : typeof ticket.resolved_at === 'number' ? new Date(ticket.resolved_at * 1000) : new Date(ticket.resolved_at || 0);
+                        return r.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                      })()}
+                      color={theme.palette.success.main}
                     />
-                    <div className="transfer-actions">
-                      <button onClick={transferTicket} className="btn-primary-small">Submit Transfer</button>
-                      <button onClick={() => { setShowTransferForm(false); setTransferReason(''); }} className="btn-secondary-small">Cancel</button>
-                    </div>
-                  </div>
+                    {ticket.resolved_by && (
+                      <SidebarItem
+                        icon={<PersonOutlineRoundedIcon sx={{ fontSize: 16 }} />}
+                        label="Resolved By"
+                        value={userCache[ticket.resolved_by] || 'Loading...'}
+                      />
+                    )}
+                  </>
                 )}
-
-                {/* Admin Transfer Form (to any agent) */}
-                {showAdminTransferForm && (
-                  <div className="transfer-form">
-                    <label className="transfer-label">Transfer to:</label>
-                    <select 
-                      value={adminTransferTarget} 
-                      onChange={(e) => setAdminTransferTarget(e.target.value)} 
-                      className="transfer-select"
-                    >
-                      <option value="">Select a user...</option>
-                      {agents.map(agent => (
-                        <option key={agent.uid} value={agent.uid}>
-                          {agent.username || agent.email} ({agent.role})
-                        </option>
-                      ))}
-                    </select>
-                    <label className="transfer-label">Reason for transfer:</label>
-                    <textarea
-                      value={adminTransferReason}
-                      onChange={(e) => setAdminTransferReason(e.target.value)}
-                      className="transfer-textarea"
-                      placeholder="Explain why this ticket is being reassigned..."
-                      rows={3}
-                    />
-                    <div className="transfer-actions">
-                      <button onClick={adminTransferTicket} className="btn-primary-small">Transfer</button>
-                      <button onClick={() => { setShowAdminTransferForm(false); setAdminTransferTarget(''); setAdminTransferReason(''); }} className="btn-secondary-small">Cancel</button>
-                    </div>
-                  </div>
+                {(ticket.status === 'Resolved' || ticket.status === 'Closed') && ticket.completed_at && (
+                  <SidebarItem
+                    icon={<AccessTimeRoundedIcon sx={{ fontSize: 16 }} />}
+                    label="Completed At"
+                    value={(() => {
+                      const cp = ticket.completed_at?.toDate ? ticket.completed_at.toDate() : typeof ticket.completed_at === 'number' ? new Date(ticket.completed_at * 1000) : new Date(ticket.completed_at || 0);
+                      return cp.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    })()}
+                    color={theme.palette.success.main}
+                  />
                 )}
-              </div>
-            )}
-
-            {/* Reopen Button (for users on closed tickets - one time only) */}
-            {user.role === 'user' && 
-             ticket.created_by === user.uid && 
-             ticket.status === 'Closed' && 
-             (ticket.reopen_count || 0) < 1 && (
-              <div className="sidebar-actions">
-                <button 
-                  onClick={async () => {
-                    try {
-                      await axios.patch(
-                        `${API_BASE_URL}/api/tickets/${id}/`, 
-                        { status: 'Open', version: ticket.version }, 
-                        { params: { role: user.role, uid: user.uid } }
-                      );
-                      showToast('Ticket reopened successfully', 'success');
-                    } catch (error) {
-                      showToast(error.response?.data?.error?.message || 'Failed to reopen ticket');
+                <SidebarItem
+                  icon={<AssignmentRoundedIcon sx={{ fontSize: 16 }} />}
+                  label="Source"
+                  value="Portal"
+                />
+                {ticket.contact && (
+                  <SidebarItem
+                    icon={<ContactPhoneRoundedIcon sx={{ fontSize: 16 }} />}
+                    label="Contact"
+                    value={ticket.contact}
+                  />
+                )}
+                {ticket.github && (
+                  <SidebarItem
+                    icon={<GitHubIcon sx={{ fontSize: 16 }} />}
+                    label="GitHub"
+                    value={
+                      <Typography
+                        component="a"
+                        href={ticket.github}
+                        target="_blank"
+                        rel="noreferrer"
+                        variant="body2"
+                        color="primary"
+                        sx={{ textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                      >
+                        {ticket.github}
+                      </Typography>
                     }
-                  }} 
-                  className="btn-warning-full"
-                >
-                  Reopen Ticket
-                </button>
-                <p className="reopen-note">You can reopen this ticket one time only</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </>
-  );
-};
+                  />
+                )}
+                {ticket.labels && ticket.labels.length > 0 && (
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="text.disabled" display="block" sx={{ mb: 0.5 }}>
+                      Labels
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {ticket.labels.map(l => (
+                        <Chip key={l} label={l} size="small" sx={{ height: 20, fontSize: '0.7rem', fontWeight: 600 }} />
+                      ))}
+                    </Box>
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
 
-export default TicketDetail;
-``
+            {/* Actions Card */}
+            {(canModify || (ticket.created_by === user.uid && !isLocked) || (user.role === 'user' && ticket.created_by === user.uid && ticket.status === 'Closed' && (ticket.reopen_count || 0) < 1)) && (
+              <Card>
+                <CardHeader
+                  title={<Typography variant="subtitle2" fontWeight={700}>Actions</Typography>}
+                  sx={{ pb: 1, borderBottom: `1px solid ${theme.palette.divider}` }}
+                />
+                <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  {canModify && (
+                    <>
+                      <FormControl fullWidth size="small">
+                        <InputLabel>Status</InputLabel>
+                        <Select value={status} label="Status" onChange={(e) => setStatus(e.target.value)} disabled={isLocked}>
+                          {['Open', 'In Progress', 'Escalated', 'Resolved', 'Closed'].map(s => (
+                            <MenuItem key={s} value={s}>{s}</MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      <Button
+                        variant="contained"
+                        fullWidth
+                        onClick={updateTicket}
+                        disabled={isLocked}
+                        startIcon={<UpdateRoundedIcon />}
+                      >
+                        Update Status
+                      </Button>
+                    </>
+                  )}
+
+                  {user.role === 'admin' && (
+                    <>
+                      <Divider />
+                      <FormControl fullWidth size="small">
+                        <InputLabel>Assign Agent</InputLabel>
+                        <Select value={assignedTo} label="Assign Agent" onChange={(e) => setAssignedTo(e.target.value)} disabled={isLocked}>
+                          <MenuItem value=""><em>Unassigned</em></MenuItem>
+                          {agents.map(a => (
+                            <MenuItem key={a.uid} value={a.uid}>{a.username || a.email}</MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      <Button
+                        variant="outlined"
+                        fullWidth
+                        onClick={assignTicket}
+                        disabled={isLocked}
+                        startIcon={<PersonOutlineRoundedIcon />}
+                      >
+                        Assign Ticket
+                      </Button>
+                    </>
+                  )}
+
+                  {/* Reopen Ticket option for User */}
+                  {user.role === 'user' && ticket.created_by === user.uid && ticket.status === 'Closed' && (ticket.reopen_count || 0) < 1 && (
+                    <>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                        You can reopen this ticket to request further assistance (one time only).
+                      </Typography>
+                      <Button
+                        fullWidth
+                        variant="contained"
+                        color="warning"
+                        onClick={async () => {
+                          try {
+                            await axios.patch(`${API_BASE_URL}/api/tickets/${id}/`, { status: 'Open', version: ticket.version }, { params: { role: user.role, uid: user.uid } });
+                          } catch {}
+                        }}
+                      >
+                        Reopen Ticket
+                      </Button>
+                    </>
+                  )}
+
+                  {!isLocked && (ticket.created_by === user.uid || canModify) && (
+                    <>
+                      <Divider sx={{ my: 0.5 }} />
+                      <Grid container spacing={1}>
+                        <Grid item xs={6}>
+                          <Button
+                            fullWidth size="small" variant="outlined" color="secondary"
+                            startIcon={<ContactPhoneRoundedIcon fontSize="small" />}
+                            onClick={() => setShowContact(!showContact)}
+                          >
+                            Contact
+                          </Button>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Button
+                            fullWidth size="small" variant="outlined" color="secondary"
+                            startIcon={<GitHubIcon fontSize="small" />}
+                            onClick={() => setShowGithub(!showGithub)}
+                          >
+                            GitHub
+                          </Button>
+                        </Grid>
+                        {user.role === 'agent' && (
+                          <Grid item xs={12}>
+                            <Button
+                              fullWidth size="small" variant="outlined"
+                              startIcon={<SwapHorizRoundedIcon fontSize="small" />}
+                              onClick={() => setShowTransfer(!showTransfer)}
+                            >
+                              Transfer to Admin
+                            </Button>
+                          </Grid>
+                        )}
+                        {user.role === 'admin' && (
+                          <Grid item xs={12}>
+                            <Button
+                              fullWidth size="small" variant="outlined"
+                              startIcon={<SwapHorizRoundedIcon fontSize="small" />}
+                              onClick={() => setShowAdminXfer(!showAdminXfer)}
+                            >
+                              Reassign
+                            </Button>
+                          </Grid>
+                        )}
+                      </Grid>
+
+                      {showContact && (
+                        <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                          <TextField size="small" fullWidth placeholder="Contact info…" value={contact} onChange={(e) => setContact(e.target.value)} />
+                          <Button size="small" variant="contained" onClick={addContact}>Save</Button>
+                        </Box>
+                      )}
+                      {showGithub && (
+                        <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                          <TextField size="small" fullWidth placeholder="GitHub URL…" value={github} onChange={(e) => setGithub(e.target.value)} />
+                          <Button size="small" variant="contained" onClick={addGithub}>Save</Button>
+                        </Box>
+                      )}
+                      {showTransfer && (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+                          <TextField size="small" fullWidth multiline rows={2} placeholder="Reason…" value={transferReason} onChange={(e) => setTransferReason(e.target.value)} />
+                          <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Button size="small" variant="contained" onClick={doTransfer} disabled={!transferReason.trim()}>Transfer</Button>
+                            <Button size="small" onClick={() => setShowTransfer(false)}>Cancel</Button>
+                          </Box>
+                        </Box>
+                      )}
+                      {showAdminXfer && (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+                          <FormControl size="small" fullWidth>
+                            <InputLabel>Target Agent</InputLabel>
+                            <Select value={adminXferTarget} label="Target Agent" onChange={(e) => setAdminXferTarget(e.target.value)}>
+                              {agents.map(a => <MenuItem key={a.uid} value={a.uid}>{a.username || a.email}</MenuItem>)}
+                            </Select>
+                          </FormControl>
+                          <TextField size="small" fullWidth multiline rows={2} placeholder="Reason…" value={adminXferReason} onChange={(e) => setAdminXferReason(e.target.value)} />
+                          <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Button size="small" variant="contained" onClick={doAdminXfer} disabled={!adminXferTarget || !adminXferReason.trim()}>Transfer</Button>
+                            <Button size="small" onClick={() => setShowAdminXfer(false)}>Cancel</Button>
+                          </Box>
+                        </Box>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Feedback Card */}
+            {user.role === 'user' && ticket.created_by === user.uid && (ticket.status === 'Resolved' || ticket.status === 'Closed') && (
+              <Card>
+                <CardHeader
+                  title={<Typography variant="subtitle2" fontWeight={700}>Feedback</Typography>}
+                  sx={{ pb: 1, borderBottom: `1px solid ${theme.palette.divider}` }}
+                />
+                <CardContent>
+                  {ticket.rating ? (
+                    <Box>
+                      <Stack direction="row" spacing={0.25} sx={{ mb: 1 }}>
+                        {[1,2,3,4,5].map(s => s <= ticket.rating
+                          ? <StarRoundedIcon key={s} sx={{ color: '#FFA726', fontSize: 22 }} />
+                          : <StarBorderRoundedIcon key={s} sx={{ color: 'text.disabled', fontSize: 22 }} />
+                        )}
+                      </Stack>
+                      {ticket.feedback && (
+                        <Typography variant="body2" color="text.secondary">
+                          {ticket.feedback}
+                        </Typography>
+                      )}
+                    </Box>
+                  ) : !showFeedback ? (
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      startIcon={<StarRoundedIcon />}
+                      onClick={() => setShowFeedback(true)}
+                    >
+                      Rate this Ticket
+                    </Button>
+                  ) : (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                      <Stack direction="row" spacing={0.5}>
+                        {[1,2,3,4,5].map(s => (
+                          <IconButton key={s} size="small" onClick={() => setRating(s)} sx={{ p: 0.25 }}>
+                            {s <= rating
+                              ? <StarRoundedIcon sx={{ color: '#FFA726', fontSize: 24 }} />
+                              : <StarBorderRoundedIcon sx={{ fontSize: 24, color: 'text.disabled' }} />}
+                          </IconButton>
+                        ))}
+                      </Stack>
+                      <TextField
+                        size="small"
+                        multiline
+                        rows={2}
+                        fullWidth
+                        placeholder="Any additional comments…"
+                        value={feedback}
+                        onChange={(e) => setFeedback(e.target.value)}
+                      />
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={submitFeedback}
+                          disabled={!rating}
+                          startIcon={<CheckCircleOutlineIcon />}
+                        >
+                          Submit
+                        </Button>
+                        <Button size="small" onClick={() => setShowFeedback(false)}>Cancel</Button>
+                      </Box>
+                    </Box>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </Stack>
+        </Grid>
+      </Grid>
+    </PageContainer>
+  );
+}

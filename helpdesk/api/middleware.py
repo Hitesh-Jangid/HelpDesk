@@ -11,12 +11,14 @@ import time
 class RateLimitMiddleware:
     """
     Rate limiting middleware using in-memory cache
-    Limits: 100 requests per minute per IP address
+    Limits: 100 requests per minute per IP address for most endpoints
+    Limits: 200 requests per minute for Todo endpoints (more lenient)
     """
     
     def __init__(self, get_response):
         self.get_response = get_response
-        self.rate_limit = 100  # requests per minute
+        self.rate_limit = 100  # requests per minute for general API
+        self.todo_rate_limit = 200  # requests per minute for Todo API
         self.window = 60  # seconds
     
     def __call__(self, request):
@@ -24,7 +26,14 @@ class RateLimitMiddleware:
         if request.path.startswith('/api/'):
             # Get client IP address
             client_ip = self.get_client_ip(request)
-            cache_key = f"rate_limit_{client_ip}"
+            
+            # Use different rate limits for Todo endpoints
+            if request.path.startswith('/api/todos/'):
+                rate_limit = self.todo_rate_limit
+                cache_key = f"rate_limit_todo_{client_ip}"
+            else:
+                rate_limit = self.rate_limit
+                cache_key = f"rate_limit_{client_ip}"
             
             # Get current request count and timestamp
             rate_data = cache.get(cache_key, {'count': 0, 'start': time.time()})
@@ -38,7 +47,7 @@ class RateLimitMiddleware:
                 cache.set(cache_key, rate_data, self.window)
             else:
                 # Check if rate limit exceeded
-                if rate_data['count'] >= self.rate_limit:
+                if rate_data['count'] >= rate_limit:
                     retry_after = int(self.window - time_elapsed)
                     return JsonResponse({
                         'error': {

@@ -1,455 +1,399 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
 import { API_BASE_URL } from '../config';
-import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import './Reports.css';
+import {
+  Box, Typography, Card, CardContent, CardHeader, Grid,
+  Tab, Tabs, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Chip, Button, LinearProgress, Stack, useTheme, alpha,
+} from '@mui/material';
+import BarChartRoundedIcon      from '@mui/icons-material/BarChartRounded';
+import WarningAmberRoundedIcon  from '@mui/icons-material/WarningAmberRounded';
+import SpeedRoundedIcon         from '@mui/icons-material/SpeedRounded';
+import PeopleAltRoundedIcon     from '@mui/icons-material/PeopleAltRounded';
+import CategoryRoundedIcon      from '@mui/icons-material/CategoryRounded';
+import StarRoundedIcon          from '@mui/icons-material/StarRounded';
+import DownloadRoundedIcon      from '@mui/icons-material/DownloadRounded';
+import ErrorOutlineIcon         from '@mui/icons-material/ErrorOutline';
+import VerifiedRoundedIcon      from '@mui/icons-material/VerifiedRounded';
+import TrendingUpRoundedIcon    from '@mui/icons-material/TrendingUpRounded';
+import { PageContainer, PageHeader, StatCard, StatRow, StatCol } from './PageLayout';
 
-const Reports = () => {
-  const { user } = useAuth();
+// StatCard is now imported from PageLayout
+
+export default function Reports() {
+  const { user, userCache, fetchUser, globalTickets, ticketsLoading } = useAuth();
+  const theme = useTheme();
+  const [tab, setTab] = useState(0);
   const [report, setReport] = useState(null);
-  const [activeReport, setActiveReport] = useState('overview');
-  const [loading, setLoading] = useState(true);
-  const [tickets, setTickets] = useState([]);
-  const [dateRange, setDateRange] = useState({ from: '', to: '' });
-  const [userCache, setUserCache] = useState({});
+  const [apiLoading, setApiLoading] = useState(true);
 
-  // Fetch user display info
-  const getUserDisplay = useCallback(async (uid) => {
-    if (userCache[uid]) return userCache[uid];
-    
+  const fetchData = useCallback(async () => {
+    if (!user) return;
     try {
-      const userDoc = await getDoc(doc(db, 'users', uid));
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        const displayName = `@${userData.username || userData.email?.split('@')[0]} (${userData.custom_uid || uid})`;
-        setUserCache(prev => ({ ...prev, [uid]: displayName }));
-        return displayName;
-      }
-    } catch (error) {
-      console.error('Failed to fetch user:', error);
-    }
-    return uid;
-  }, [userCache]);
-
-  const fetchAllTickets = useCallback(async () => {
-    try {
-      setLoading(true);
-      const ticketsSnapshot = await getDocs(collection(db, 'tickets'));
-      const ticketsList = ticketsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setTickets(ticketsList);
-      
-      // Fetch user info for all assigned agents
-      const agentIds = [...new Set(ticketsList.map(t => t.assigned_to).filter(Boolean))];
-      agentIds.forEach(agentId => getUserDisplay(agentId));
-    } catch (error) {
-      console.error('Failed to fetch tickets:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [getUserDisplay]);
-
-  const fetchSLAReport = useCallback(async () => {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/api/reports/sla/`, { params: { role: user.role } });
-      setReport(response.data);
-    } catch (error) {
-      console.error(error);
-    }
+      const r = await axios.get(`${API_BASE_URL}/api/reports/sla/`, { params: { role: user.role } });
+      setReport(r.data);
+    } catch {}
+    setApiLoading(false);
   }, [user]);
 
   useEffect(() => {
-    if (user && user.role === 'admin') {
-      fetchAllTickets();
-      if (activeReport === 'sla') fetchSLAReport();
+    if (user?.role === 'admin') fetchData();
+  }, [user, fetchData]);
+
+  useEffect(() => {
+    if (globalTickets.length) {
+      const assignees = [...new Set(globalTickets.map(t => t.assigned_to).filter(Boolean))];
+      assignees.forEach(fetchUser);
     }
-  }, [user, activeReport, fetchAllTickets, fetchSLAReport]);
+  }, [globalTickets, fetchUser]);
 
-  // Calculate ticket volume by date
-  const getTicketVolumeData = () => {
-    const volumeMap = {};
-    tickets.forEach(ticket => {
-      const date = ticket.created_at?.toDate ? ticket.created_at.toDate() : new Date(ticket.created_at);
-      const dateKey = date.toLocaleDateString();
-      volumeMap[dateKey] = (volumeMap[dateKey] || 0) + 1;
-    });
-    return Object.entries(volumeMap).sort((a, b) => new Date(a[0]) - new Date(b[0]));
-  };
+  const tickets = globalTickets;
+  const loading = ticketsLoading || apiLoading;
 
-  // Calculate average resolution time
-  const getResolutionTimeData = () => {
-    const resolvedTickets = tickets.filter(t => 
-      (t.status === 'Resolved' || t.status === 'Closed') && t.resolved_at
-    );
-    
-    if (resolvedTickets.length === 0) return { average: 'N/A', count: 0 };
-    
-    const totalTime = resolvedTickets.reduce((sum, ticket) => {
-      const created = ticket.created_at?.toDate ? ticket.created_at.toDate() : new Date(ticket.created_at);
-      const resolved = ticket.resolved_at?.toDate ? ticket.resolved_at.toDate() : new Date(ticket.resolved_at);
-      return sum + (resolved - created);
+  if (!user || user.role !== 'admin') return (
+    <PageContainer>
+      <Box sx={{ textAlign: 'center', py: 8 }}>
+        <ErrorOutlineIcon sx={{ fontSize: 48, color: 'error.main', mb: 1 }} />
+        <Typography variant="h6" fontWeight={700}>Access Denied</Typography>
+        <Typography variant="body2" color="text.secondary">This page requires admin access.</Typography>
+      </Box>
+    </PageContainer>
+  );
+
+  if (loading) return (
+    <PageContainer><LinearProgress /></PageContainer>
+  );
+
+  // Data helpers
+  const resolutionData = (() => {
+    const resolved = tickets.filter(t => (t.status === 'Resolved' || t.status === 'Closed') && t.resolved_at);
+    if (!resolved.length) return { average: 'N/A', count: 0 };
+    const total = resolved.reduce((s, t) => {
+      const c = t.created_at?.toDate ? t.created_at.toDate() : new Date(t.created_at || 0);
+      const r = t.resolved_at?.toDate ? t.resolved_at.toDate() : new Date(t.resolved_at);
+      return s + (r - c);
     }, 0);
-    
-    const avgTime = totalTime / resolvedTickets.length;
-    const hours = Math.floor(avgTime / (1000 * 60 * 60));
-    const minutes = Math.floor((avgTime % (1000 * 60 * 60)) / (1000 * 60));
-    
-    return { 
-      average: `${hours}h ${minutes}m`, 
-      count: resolvedTickets.length,
-      avgMs: avgTime
-    };
-  };
+    const avg = total / resolved.length;
+    return { average: `${Math.floor(avg / 3600000)}h ${Math.floor((avg % 3600000) / 60000)}m`, count: resolved.length };
+  })();
 
-  // Agent performance metrics
-  const getAgentPerformance = () => {
-    const agentStats = {};
-    
-    tickets.forEach(ticket => {
-      if (ticket.assigned_to) {
-        if (!agentStats[ticket.assigned_to]) {
-          agentStats[ticket.assigned_to] = {
-            total: 0,
-            resolved: 0,
-            open: 0,
-            avgResolutionTime: 0
-          };
-        }
-        
-        agentStats[ticket.assigned_to].total++;
-        
-        if (ticket.status === 'Resolved' || ticket.status === 'Closed') {
-          agentStats[ticket.assigned_to].resolved++;
-        } else {
-          agentStats[ticket.assigned_to].open++;
-        }
-      }
+  const satData = (() => {
+    const rated = tickets.filter(t => t.rating);
+    if (!rated.length) return { average: 'N/A', count: 0, dist: new Map() };
+    const total = rated.reduce((s, t) => s + t.rating, 0);
+    const dist = new Map([[5,0],[4,0],[3,0],[2,0],[1,0]]);
+    rated.forEach(t => dist.set(t.rating, (dist.get(t.rating) || 0) + 1));
+    return { average: (total / rated.length).toFixed(1), count: rated.length, dist };
+  })();
+
+  const volumeData = (() => {
+    const m = new Map();
+    tickets.forEach(t => {
+      const d = t.created_at?.toDate ? t.created_at.toDate() : new Date(t.created_at || 0);
+      const k = d.toLocaleDateString();
+      m.set(k, (m.get(k) || 0) + 1);
     });
-    
-    return Object.entries(agentStats);
-  };
+    return Array.from(m.entries()).sort((a, b) => new Date(a[0]) - new Date(b[0]));
+  })();
 
-  // Category distribution
-  const getCategoryData = () => {
-    const categoryMap = {};
-    tickets.forEach(ticket => {
-      const category = ticket.category || 'Uncategorized';
-      categoryMap[category] = (categoryMap[category] || 0) + 1;
+  const agentData = (() => {
+    const m = new Map();
+    tickets.forEach(t => {
+      if (!t.assigned_to) return;
+      if (!m.has(t.assigned_to)) m.set(t.assigned_to, { total: 0, resolved: 0, open: 0 });
+      const s = m.get(t.assigned_to);
+      s.total++;
+      if (t.status === 'Resolved' || t.status === 'Closed') s.resolved++; else s.open++;
     });
-    return Object.entries(categoryMap).sort((a, b) => b[1] - a[1]);
-  };
+    return Array.from(m.entries());
+  })();
 
-  // Priority distribution
-  const getPriorityData = () => {
-    const priorityMap = { Critical: 0, High: 0, Medium: 0, Low: 0 };
-    tickets.forEach(ticket => {
-      const priority = ticket.priority || 'Medium';
-      priorityMap[priority] = (priorityMap[priority] || 0) + 1;
-    });
-    return Object.entries(priorityMap);
-  };
+  const categoryData = (() => {
+    const m = new Map();
+    tickets.forEach(t => { const c = t.category || 'Uncategorized'; m.set(c, (m.get(c) || 0) + 1); });
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
+  })();
 
-  // Customer satisfaction
-  const getSatisfactionData = () => {
-    const ratedTickets = tickets.filter(t => t.rating);
-    if (ratedTickets.length === 0) return { average: 'N/A', count: 0, distribution: {} };
-    
-    const totalRating = ratedTickets.reduce((sum, t) => sum + t.rating, 0);
-    const avgRating = (totalRating / ratedTickets.length).toFixed(2);
-    
-    const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
-    ratedTickets.forEach(t => {
-      distribution[t.rating] = (distribution[t.rating] || 0) + 1;
-    });
-    
-    return { average: avgRating, count: ratedTickets.length, distribution };
-  };
+  const priorityData = (() => {
+    const m = new Map([['Critical', 0], ['High', 0], ['Medium', 0], ['Low', 0]]);
+    tickets.forEach(t => { const p = t.priority || 'Medium'; m.set(p, (m.get(p) || 0) + 1); });
+    return Array.from(m.entries());
+  })();
 
-  const exportToCSV = (reportType) => {
-    let csv = '';
-    let filename = '';
-    
-    switch(reportType) {
-      case 'sla':
-        csv = 'Title,Description,Priority,Category,Status,SLA Deadline\n' +
-          report.breached_tickets.map(t => `${t.title},${t.description},${t.priority},${t.category},${t.status},${new Date(t.sla_deadline).toISOString()}`).join('\n');
-        filename = 'sla_breached_tickets.csv';
-        break;
-      case 'volume':
-        const volumeData = getTicketVolumeData();
-        csv = 'Date,Ticket Count\n' + volumeData.map(([date, count]) => `${date},${count}`).join('\n');
-        filename = 'ticket_volume.csv';
-        break;
-      case 'category':
-        const categoryData = getCategoryData();
-        csv = 'Category,Count\n' + categoryData.map(([cat, count]) => `${cat},${count}`).join('\n');
-        filename = 'category_distribution.csv';
-        break;
-      default:
-        return;
+  const exportCSV = (type) => {
+    let csv = '', filename = '';
+    if (type === 'volume') {
+      csv = 'Date,Count\n' + volumeData.map(([d, c]) => `${d},${c}`).join('\n');
+      filename = 'volume.csv';
+    } else if (type === 'category') {
+      csv = 'Category,Count\n' + categoryData.map(([c, n]) => `${c},${n}`).join('\n');
+      filename = 'category.csv';
     }
-    
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
+    if (!csv) return;
     const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = filename; a.click();
   };
 
-  if (!user || user.role !== 'admin') return <div>Access denied. Admin only.</div>;
-  if (loading) return <div className="loading">Loading reports...</div>;
+  const TABS = [
+    { label: 'SLA', icon: <SpeedRoundedIcon fontSize="small" /> },
+    { label: 'Volume', icon: <BarChartRoundedIcon fontSize="small" /> },
+    { label: 'Agents', icon: <PeopleAltRoundedIcon fontSize="small" /> },
+    { label: 'Categories', icon: <CategoryRoundedIcon fontSize="small" /> },
+    { label: 'Satisfaction', icon: <StarRoundedIcon fontSize="small" /> },
+  ];
 
-  const volumeData = getTicketVolumeData();
-  const resolutionData = getResolutionTimeData();
-  const agentData = getAgentPerformance();
-  const categoryData = getCategoryData();
-  const priorityData = getPriorityData();
-  const satisfactionData = getSatisfactionData();
+  const PRIORITY_COLOR = { Critical: 'error', High: 'warning', Medium: 'info', Low: 'success' };
 
   return (
-    <div className="reports">
-      <h2>Reports & Analytics</h2>
-      
-      {/* Report Type Tabs */}
-      <div className="report-tabs">
-        <button 
-          className={activeReport === 'overview' ? 'active' : ''}
-          onClick={() => setActiveReport('overview')}
-        >
-          📊 Overview
-        </button>
-        <button 
-          className={activeReport === 'sla' ? 'active' : ''}
-          onClick={() => setActiveReport('sla')}
-        >
-          ⏱️ SLA Reports
-        </button>
-        <button 
-          className={activeReport === 'volume' ? 'active' : ''}
-          onClick={() => setActiveReport('volume')}
-        >
-          📈 Ticket Volume
-        </button>
-        <button 
-          className={activeReport === 'performance' ? 'active' : ''}
-          onClick={() => setActiveReport('performance')}
-        >
-          👥 Agent Performance
-        </button>
-        <button 
-          className={activeReport === 'categories' ? 'active' : ''}
-          onClick={() => setActiveReport('categories')}
-        >
-          🏷️ Categories
-        </button>
-        <button 
-          className={activeReport === 'satisfaction' ? 'active' : ''}
-          onClick={() => setActiveReport('satisfaction')}
-        >
-          ⭐ Satisfaction
-        </button>
-      </div>
+    <PageContainer>
+      <PageHeader title="Reports & Analytics" subtitle="Performance insights across your support team" />
 
-      {/* Overview Report */}
-      {activeReport === 'overview' && (
-        <div className="report-content">
-          <div className="overview-grid">
-            <div className="stat-card">
-              <h3>Total Tickets</h3>
-              <p className="stat-number">{tickets.length}</p>
-            </div>
-            <div className="stat-card">
-              <h3>Open Tickets</h3>
-              <p className="stat-number">{tickets.filter(t => t.status === 'Open').length}</p>
-            </div>
-            <div className="stat-card">
-              <h3>Resolved Tickets</h3>
-              <p className="stat-number">{tickets.filter(t => t.status === 'Resolved' || t.status === 'Closed').length}</p>
-            </div>
-            <div className="stat-card">
-              <h3>Avg Resolution Time</h3>
-              <p className="stat-number">{resolutionData.average}</p>
-            </div>
-            <div className="stat-card">
-              <h3>Customer Satisfaction</h3>
-              <p className="stat-number">
-                {satisfactionData.average === 'N/A' ? 'N/A' : `${satisfactionData.average} / 5`}
-              </p>
-              <small>{satisfactionData.count} rating{satisfactionData.count !== 1 ? 's' : ''}</small>
-            </div>
-            <div className="stat-card">
-              <h3>SLA Breached</h3>
-              <p className="stat-number">{report?.count || 0}</p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* KPI Cards */}
+      <StatRow>
+        <StatCol><StatCard icon={<TrendingUpRoundedIcon />} label="Total Tickets" value={report?.total_tickets || tickets.length} colorKey="primary" /></StatCol>
+        <StatCol><StatCard icon={<WarningAmberRoundedIcon />} label="SLA Breached" value={report?.total_breached || 0} colorKey="error" /></StatCol>
+        <StatCol><StatCard icon={<SpeedRoundedIcon />} label="Avg Resolution" value={resolutionData.average} sub={`${resolutionData.count} tickets`} colorKey="info" /></StatCol>
+        <StatCol><StatCard icon={<StarRoundedIcon />} label="Avg Rating" value={satData.average} sub={`${satData.count} reviews`} colorKey="warning" /></StatCol>
+      </StatRow>
 
-      {/* SLA Report */}
-      {activeReport === 'sla' && report && (
-        <div className="report-content">
-          <div className="report-header">
-            <h3>SLA Breached Tickets ({report.count})</h3>
-            <button onClick={() => exportToCSV('sla')} className="export-btn">📥 Export CSV</button>
-          </div>
-          {report.breached_tickets.length === 0 ? (
-            <p>No breached tickets.</p>
-          ) : (
-            <div className="tickets-grid">
-              {report.breached_tickets.map(ticket => (
-                <div key={ticket.id} className="ticket-card breached">
-                  <h4>{ticket.title}</h4>
-                  <p>{ticket.description}</p>
-                  <p><strong>Priority:</strong> {ticket.priority}</p>
-                  <p><strong>Deadline:</strong> {new Date(ticket.sla_deadline).toLocaleString()}</p>
-                </div>
-              ))}
-            </div>
+      {/* Tabs */}
+      <Card>
+        <Box sx={{ borderBottom: `1px solid ${theme.palette.divider}`, px: 1 }}>
+          <Tabs
+            value={tab}
+            onChange={(_, v) => setTab(v)}
+            variant="scrollable"
+            scrollButtons="auto"
+          >
+            {TABS.map((t, i) => (
+              <Tab
+                key={i}
+                label={t.label}
+                icon={t.icon}
+                iconPosition="start"
+                sx={{ minHeight: 48, gap: 0.5 }}
+              />
+            ))}
+          </Tabs>
+        </Box>
+
+        <CardContent sx={{ p: 0 }}>
+          {/* SLA Tab */}
+          {tab === 0 && (
+            <Box sx={{ p: 3 }}>
+              {!report || !report.breached_tickets?.length ? (
+                <Box sx={{ textAlign: 'center', py: 6 }}>
+                  <VerifiedRoundedIcon sx={{ fontSize: 48, color: 'success.main', mb: 1 }} />
+                  <Typography variant="h6" fontWeight={700} color="success.main">No SLA Breaches</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>All tickets are within SLA limits.</Typography>
+                </Box>
+              ) : (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Title</TableCell>
+                        <TableCell>Priority</TableCell>
+                        <TableCell>Category</TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell>SLA Deadline</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {report.breached_tickets.map((t, i) => (
+                        <TableRow key={i}>
+                          <TableCell><Typography variant="body2" fontWeight={600}>{t.title}</Typography></TableCell>
+                          <TableCell><Chip label={t.priority} color={PRIORITY_COLOR[t.priority] || 'default'} size="small" /></TableCell>
+                          <TableCell><Typography variant="caption">{t.category}</Typography></TableCell>
+                          <TableCell><Chip label={t.status} size="small" variant="outlined" /></TableCell>
+                          <TableCell><Typography variant="caption" color="error.main">{new Date(t.sla_deadline).toLocaleString()}</Typography></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+            </Box>
           )}
-        </div>
-      )}
 
-      {/* Volume Report */}
-      {activeReport === 'volume' && (
-        <div className="report-content">
-          <div className="report-header">
-            <h3>Ticket Volume Over Time</h3>
-            <button onClick={() => exportToCSV('volume')} className="export-btn">📥 Export CSV</button>
-          </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Tickets Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {volumeData.map(([date, count]) => (
-                <tr key={date}>
-                  <td>{date}</td>
-                  <td>{count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+          {/* Volume Tab */}
+          {tab === 1 && (
+            <Box sx={{ p: 3 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="subtitle2" fontWeight={700}>Tickets Created Per Day</Typography>
+                <Button size="small" startIcon={<DownloadRoundedIcon />} variant="outlined" onClick={() => exportCSV('volume')}>Export</Button>
+              </Box>
+              {volumeData.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No data available</Typography>
+              ) : (
+                <Box>
+                  {volumeData.map(([date, count]) => (
+                    <Box key={date} sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ width: 100, flexShrink: 0 }}>{date}</Typography>
+                      <LinearProgress
+                        variant="determinate"
+                        value={Math.min(100, (count / Math.max(...volumeData.map(d => d[1]))) * 100)}
+                        sx={{ flex: 1, height: 8 }}
+                      />
+                      <Typography variant="caption" fontWeight={700} sx={{ width: 24, textAlign: 'right' }}>{count}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
 
-      {/* Agent Performance */}
-      {activeReport === 'performance' && (
-        <div className="report-content">
-          <h3>Agent Performance Metrics</h3>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Agent</th>
-                <th>Total Assigned</th>
-                <th>Resolved</th>
-                <th>Open</th>
-                <th>Resolution Rate</th>
-              </tr>
-            </thead>
-            <tbody>
-              {agentData.map(([agentId, stats]) => (
-                <tr key={agentId}>
-                  <td>{userCache[agentId] || agentId}</td>
-                  <td>{stats.total}</td>
-                  <td>{stats.resolved}</td>
-                  <td>{stats.open}</td>
-                  <td>{stats.total > 0 ? ((stats.resolved / stats.total) * 100).toFixed(1) : 0}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+          {/* Agents Tab */}
+          {tab === 2 && (
+            <Box sx={{ p: 3 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2 }}>Agent Performance</Typography>
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Agent</TableCell>
+                      <TableCell align="center">Total</TableCell>
+                      <TableCell align="center">Resolved</TableCell>
+                      <TableCell align="center">Open</TableCell>
+                      <TableCell align="right">Resolution Rate</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {agentData.map(([uid, s]) => {
+                      const rate = s.total > 0 ? ((s.resolved / s.total) * 100).toFixed(0) : 0;
+                      return (
+                        <TableRow key={uid}>
+                          <TableCell><Typography variant="body2" fontWeight={600}>{userCache[uid] || uid}</Typography></TableCell>
+                          <TableCell align="center"><Typography variant="body2">{s.total}</Typography></TableCell>
+                          <TableCell align="center">
+                            <Chip label={s.resolved} color="success" size="small" sx={{ height: 20 }} />
+                          </TableCell>
+                          <TableCell align="center">
+                            <Chip label={s.open} color="warning" variant="outlined" size="small" sx={{ height: 20 }} />
+                          </TableCell>
+                          <TableCell align="right">
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'flex-end' }}>
+                              <LinearProgress
+                                variant="determinate"
+                                value={Number(rate)}
+                                color={rate >= 80 ? 'success' : rate >= 50 ? 'warning' : 'error'}
+                                sx={{ width: 60, height: 6 }}
+                              />
+                              <Typography variant="caption" fontWeight={700}>{rate}%</Typography>
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+          )}
 
-      {/* Category Distribution */}
-      {activeReport === 'categories' && (
-        <div className="report-content">
-          <div className="report-header">
-            <h3>Category Distribution</h3>
-            <button onClick={() => exportToCSV('category')} className="export-btn">📥 Export CSV</button>
-          </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Category</th>
-                <th>Count</th>
-                <th>Percentage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {categoryData.map(([category, count]) => (
-                <tr key={category}>
-                  <td>{category}</td>
-                  <td>{count}</td>
-                  <td>{((count / tickets.length) * 100).toFixed(1)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          
-          <h3 style={{ marginTop: '2rem' }}>Priority Distribution</h3>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Priority</th>
-                <th>Count</th>
-                <th>Percentage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {priorityData.map(([priority, count]) => (
-                <tr key={priority}>
-                  <td><span className={`priority-badge priority-${priority.toLowerCase()}`}>{priority}</span></td>
-                  <td>{count}</td>
-                  <td>{((count / tickets.length) * 100).toFixed(1)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+          {/* Categories Tab */}
+          {tab === 3 && (
+            <Box sx={{ p: 3 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="subtitle2" fontWeight={700}>Distribution</Typography>
+                <Button size="small" startIcon={<DownloadRoundedIcon />} variant="outlined" onClick={() => exportCSV('category')}>Export</Button>
+              </Box>
+              <Grid container spacing={3}>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="overline" color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>By Category</Typography>
+                  {categoryData.map(([cat, count]) => (
+                    <Box key={cat} sx={{ mb: 1.5 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Typography variant="caption" fontWeight={600}>{cat}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {count} · {tickets.length > 0 ? ((count / tickets.length) * 100).toFixed(1) : 0}%
+                        </Typography>
+                      </Box>
+                      <LinearProgress
+                        variant="determinate"
+                        value={tickets.length > 0 ? (count / tickets.length) * 100 : 0}
+                        sx={{ height: 8 }}
+                      />
+                    </Box>
+                  ))}
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="overline" color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>By Priority</Typography>
+                  {priorityData.map(([priority, count]) => (
+                    <Box key={priority} sx={{ mb: 1.5 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Chip label={priority} size="small" color={PRIORITY_COLOR[priority] || 'default'} sx={{ height: 20 }} />
+                        <Typography variant="caption" color="text.secondary">
+                          {count} · {tickets.length > 0 ? ((count / tickets.length) * 100).toFixed(1) : 0}%
+                        </Typography>
+                      </Box>
+                      <LinearProgress
+                        variant="determinate"
+                        value={tickets.length > 0 ? (count / tickets.length) * 100 : 0}
+                        color={PRIORITY_COLOR[priority] || 'primary'}
+                        sx={{ height: 8 }}
+                      />
+                    </Box>
+                  ))}
+                </Grid>
+              </Grid>
+            </Box>
+          )}
 
-      {/* Satisfaction Report */}
-      {activeReport === 'satisfaction' && (
-        <div className="report-content">
-          <h3>Customer Satisfaction Ratings</h3>
-          <div className="satisfaction-overview">
-            <div className="big-stat">
-              <h2>{satisfactionData.average}</h2>
-              <p>Average Rating</p>
-              <small>{satisfactionData.count} total ratings</small>
-            </div>
-          </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Rating</th>
-                <th>Count</th>
-                <th>Percentage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(satisfactionData.distribution).reverse().map(([rating, count]) => (
-                <tr key={rating}>
-                  <td>{'⭐'.repeat(parseInt(rating))}</td>
-                  <td>{count}</td>
-                  <td>{satisfactionData.count > 0 ? ((count / satisfactionData.count) * 100).toFixed(1) : 0}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+          {/* Satisfaction Tab */}
+          {tab === 4 && (
+            <Box sx={{ p: 3 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2 }}>Customer Satisfaction</Typography>
+              {satData.count === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 6 }}>
+                  <StarRoundedIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+                  <Typography variant="body2" color="text.secondary">No ratings yet</Typography>
+                </Box>
+              ) : (
+                <Grid container spacing={3} alignItems="flex-start">
+                  <Grid item xs={12} sm={3}>
+                    <Box sx={{ textAlign: 'center', py: 3, borderRadius: 2, border: `1px solid ${theme.palette.divider}` }}>
+                      <Typography variant="h2" fontWeight={800} sx={{ color: '#FFA726', lineHeight: 1 }}>
+                        {satData.average}
+                      </Typography>
+                      <Stack direction="row" justifyContent="center" spacing={0.25} sx={{ mt: 1 }}>
+                        {[1,2,3,4,5].map(s => (
+                          <StarRoundedIcon key={s} sx={{ fontSize: 18, color: s <= Math.round(parseFloat(satData.average)) ? '#FFA726' : 'text.disabled' }} />
+                        ))}
+                      </Stack>
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                        {satData.count} total ratings
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} sm={9}>
+                    {Array.from(satData.dist.entries()).reverse().map(([r, count]) => (
+                      <Box key={r} sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+                        <Stack direction="row" spacing={0.1} sx={{ width: 80, flexShrink: 0 }}>
+                          {[1,2,3,4,5].map(s => (
+                            <StarRoundedIcon key={s} sx={{ fontSize: 14, color: s <= r ? '#FFA726' : 'text.disabled' }} />
+                          ))}
+                        </Stack>
+                        <LinearProgress
+                          variant="determinate"
+                          value={satData.count > 0 ? (count / satData.count) * 100 : 0}
+                          sx={{ flex: 1, height: 8 }}
+                          color="warning"
+                        />
+                        <Typography variant="caption" fontWeight={700} sx={{ width: 24 }}>{count}</Typography>
+                      </Box>
+                    ))}
+                  </Grid>
+                </Grid>
+              )}
+            </Box>
+          )}
+        </CardContent>
+      </Card>
+    </PageContainer>
   );
-};
-
-export default Reports;
+}

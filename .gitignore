@@ -131,3 +131,12 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# ===================================
+# PROJECT-SPECIFIC SCRATCH FILES
+# ===================================
+clean_css.sh
+fix_datetime.py
+npm_log.txt
+replace.cjs
+update_classes.cjs

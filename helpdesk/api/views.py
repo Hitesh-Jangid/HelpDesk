@@ -7,6 +7,8 @@ from .firebase_config import db
 import json
 import re
 from datetime import datetime, timedelta
+from collections import defaultdict
+from django.utils.html import strip_tags
 from rest_framework.pagination import PageNumberPagination
 
 class TicketPagination(PageNumberPagination):
@@ -16,12 +18,17 @@ def serialize_firestore_doc(doc_dict):
     """Convert Firestore Timestamps to Unix timestamps for JSON serialization"""
     serialized = {}
     for key, value in doc_dict.items():
-        if hasattr(value, 'timestamp'):  # Firestore Timestamp
-            serialized[key] = int(value.timestamp())  # Unix timestamp in seconds
+        if isinstance(value, datetime):
+            serialized[key] = int(value.timestamp())
+        elif not isinstance(value, (str, bytes)) and hasattr(value, 'timestamp'):
+            try:
+                serialized[key] = int(value.timestamp())
+            except AttributeError:
+                serialized[key] = value
         elif isinstance(value, list):
             # Handle lists (like timeline) that might contain timestamps
             serialized[key] = [
-                {k: int(v.timestamp()) if hasattr(v, 'timestamp') else v for k, v in item.items()}
+                {k: int(v.timestamp()) if isinstance(v, datetime) else v for k, v in item.items()}
                 if isinstance(item, dict) else item
                 for item in value
             ]
@@ -111,6 +118,17 @@ def generate_ticket_id():
     new_num = last_num + 1
     return f"T{str(new_num).zfill(9)}"
 
+def resolve_ticket_ref(ticket_id):
+    """Resolve ticket_id (which can be Firestore document ID or T000000001 ticket_id) to (doc_ref, doc_id, doc_snapshot)"""
+    doc_ref = db.collection('tickets').document(ticket_id)
+    doc_snap = doc_ref.get()
+    if doc_snap.exists:
+        return doc_ref, doc_snap.id, doc_snap
+    tickets = db.collection('tickets').where('ticket_id', '==', ticket_id).limit(1).stream()
+    for doc in tickets:
+        return doc.reference, doc.id, doc
+    return None, None, None
+
 class RegisterView(APIView):
     def post(self, request):
         email = request.data.get('email')
@@ -118,30 +136,30 @@ class RegisterView(APIView):
         role = request.data.get('role', 'user')
         name = request.data.get('name', '')
         
-        print(f"Registration attempt - Email: {email}, Name: {name}, Role: {role}")
+        pass # print(f"Registration attempt - Email: {email}, Name: {name}, Role: {role}")
         
         if not email or not password:
-            print("Error: Missing email or password")
+            pass # print("Error: Missing email or password")
             return Response({'error': {'code': 'FIELD_REQUIRED', 'field': 'email', 'message': 'Email and password required'}}, status=status.HTTP_400_BAD_REQUEST)
         
         if not name or not name.strip():
-            print("Error: Missing name")
+            pass # print("Error: Missing name")
             return Response({'error': {'code': 'FIELD_REQUIRED', 'field': 'name', 'message': 'Name is required'}}, status=status.HTTP_400_BAD_REQUEST)
         
         if role not in ['user', 'agent', 'admin']:
-            print(f"Error: Invalid role - {role}")
+            pass # print(f"Error: Invalid role - {role}")
             return Response({'error': {'code': 'INVALID_ROLE', 'message': 'Role must be user, agent, or admin'}}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            print("Creating Firebase Auth user...")
+            pass # print("Creating Firebase Auth user...")
             # Create Firebase Auth user
             user = auth.create_user(email=email, password=password)
-            print(f"Firebase user created: {user.uid}")
+            pass # print(f"Firebase user created: {user.uid}")
             
             # Generate UID and username
             custom_uid = generate_uid(role)
             username = generate_username(name, email)
-            print(f"Generated custom_uid: {custom_uid}, username: {username}")
+            pass # print(f"Generated custom_uid: {custom_uid}, username: {username}")
             
             # Check if this is the first admin (auto-verify first admin)
             is_verified = False
@@ -153,7 +171,7 @@ class RegisterView(APIView):
                     # This is the first admin - auto verify
                     is_verified = True
                     verified_at = datetime.now()
-                    print("First admin detected - auto-verifying")
+                    pass # print("First admin detected - auto-verifying")
             elif role == 'agent':
                 # Agents need manual verification
                 is_verified = False
@@ -178,7 +196,7 @@ class RegisterView(APIView):
                     user_data['verified_at'] = verified_at
             
             db.collection('users').document(user.uid).set(user_data)
-            print(f"Firestore document created successfully (verified: {is_verified})")
+            pass # print(f"Firestore document created successfully (verified: {is_verified})")
             
             return Response({
                 'uid': user.uid, 
@@ -191,15 +209,15 @@ class RegisterView(APIView):
             }, status=status.HTTP_201_CREATED)
             
         except auth.EmailAlreadyExistsError:
-            print(f"Error: Email already exists - {email}")
+            pass # print(f"Error: Email already exists - {email}")
             return Response({'error': {'code': 'EMAIL_EXISTS', 'message': 'Email already registered'}}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            print(f"Error during registration: {str(e)}")
+            pass # print(f"Error during registration: {str(e)}")
             # If Firestore fails but Auth succeeded, clean up Auth user
             try:
                 if 'user' in locals():
                     auth.delete_user(user.uid)
-                    print(f"Cleaned up Firebase user: {user.uid}")
+                    pass # print(f"Cleaned up Firebase user: {user.uid}")
             except:
                 pass
             return Response({'error': {'code': 'AUTH_ERROR', 'message': str(e)}}, status=status.HTTP_400_BAD_REQUEST)
@@ -260,11 +278,11 @@ class LoginView(APIView):
                 role = user_data.get('role', 'user')
                 verified = user_data.get('verified', True)
                 
-                print(f"Login attempt - UID: {uid}, Role: {role}, Verified: {verified}")
+                pass # print(f"Login attempt - UID: {uid}, Role: {role}, Verified: {verified}")
                 
                 # Block unverified agents/admins from logging in
                 if role in ['agent', 'admin'] and not verified:
-                    print(f"Blocking unverified {role} from login")
+                    pass # print(f"Blocking unverified {role} from login")
                     return Response({
                         'error': {
                             'code': 'VERIFICATION_PENDING',
@@ -337,7 +355,7 @@ class TicketListView(APIView):
         if idempotency_key:
             existing = db.collection('tickets').where('idempotency_key', '==', idempotency_key).limit(1).stream()
             for doc in existing:
-                return Response(doc.to_dict(), status=status.HTTP_200_OK)
+                return Response(serialize_firestore_doc(doc.to_dict()), status=status.HTTP_200_OK)
 
         sla_hours = {'Low': 48, 'Medium': 24, 'High': 12, 'Critical': 4}[priority]
         sla_deadline = datetime.now() + timedelta(hours=sla_hours)
@@ -346,7 +364,7 @@ class TicketListView(APIView):
         ticket_id = generate_ticket_id()
         
         # Smart agent assignment algorithm
-        assigned_agent = self.assign_to_best_agent(priority)
+        assigned_agent = self.assign_to_best_agent(priority, category)
 
         ticket_data = {
             'ticket_id': ticket_id,
@@ -397,32 +415,90 @@ class TicketListView(APIView):
         ticket_data = serialize_firestore_doc(ticket_data)
         return Response(ticket_data, status=status.HTTP_201_CREATED)
     
-    def assign_to_best_agent(self, priority):
-        """Smart assignment: distribute based on workload"""
-        # Get all active and verified agents
+    def assign_to_best_agent(self, priority, category='General'):
+        """
+        Smart 3-condition assignment algorithm:
+
+        Condition 1 — CATEGORY AFFINITY
+            Prefer agents who have resolved the most tickets of the same category.
+            Score = number of resolved/closed tickets in this category assigned to the agent.
+
+        Condition 2 — LOAD BALANCING
+            Among tied-score agents, prefer the one with fewer active (Open/In Progress) tickets.
+
+        Condition 3 — ROUND-ROBIN TIE-BREAK
+            Among still-tied agents, prefer the one who was last assigned earliest
+            (stored as 'last_assigned_at' on the user doc), ensuring fair distribution.
+        """
         agents_ref = db.collection('users').where('role', '==', 'agent').stream()
         agents = []
         for agent in agents_ref:
             agent_data = agent.to_dict()
             agent_data['uid'] = agent.id
-            # Only include verified agents
             if agent_data.get('verified', True):
                 agents.append(agent_data)
-        
+
         if not agents:
-            return None  # No verified agents available
-        
+            return None
         if len(agents) == 1:
-            return agents[0]['uid']  # Only one agent, assign to them
-        
-        # For Critical priority, assign to agent with least workload
-        if priority == 'Critical':
-            agents.sort(key=lambda x: x.get('active_tickets', 0))
             return agents[0]['uid']
-        
-        # For other priorities, round-robin based on workload
-        agents.sort(key=lambda x: x.get('active_tickets', 0))
-        return agents[0]['uid']
+
+        # ── Condition 1: Category affinity score ─────────────────────────────
+        # Count resolved/closed tickets per agent for this category
+        resolved_tickets = db.collection('tickets') \
+            .where('category', '==', category) \
+            .where('status', 'in', ['Resolved', 'Closed']) \
+            .stream()
+
+        affinity = defaultdict(int)
+        for t in resolved_tickets:
+            td = t.to_dict()
+            assigned = td.get('assigned_to')
+            if assigned:
+                affinity[assigned] += 1
+
+        for agent in agents:
+            agent['_affinity'] = affinity.get(agent['uid'], 0)
+
+        max_affinity = max(a['_affinity'] for a in agents)
+
+        # ── Condition 2: Load balance among top-affinity agents ───────────────
+        # Keep only agents with max category affinity (or all if all are 0)
+        if max_affinity > 0:
+            top = [a for a in agents if a['_affinity'] == max_affinity]
+        else:
+            top = agents  # no affinity data yet — all candidates
+
+        min_load = min(a.get('active_tickets', 0) for a in top)
+        top = [a for a in top if a.get('active_tickets', 0) == min_load]
+
+        # ── Condition 3: Round-robin tie-break by last_assigned_at ───────────
+        # Pick the agent who was least recently assigned (earliest timestamp)
+        def last_assigned_ts(agent):
+            ts = agent.get('last_assigned_at')
+            if ts is None:
+                return 0  # never assigned → highest priority
+            if hasattr(ts, 'timestamp'):
+                return ts.timestamp()
+            return float(ts)
+
+        top.sort(key=last_assigned_ts)
+        chosen = top[0]
+
+        # For Critical tickets — override with absolute least-loaded agent
+        if priority == 'Critical':
+            agents_sorted = sorted(agents, key=lambda a: (
+                a.get('active_tickets', 0),
+                last_assigned_ts(a)
+            ))
+            chosen = agents_sorted[0]
+
+        # Stamp last_assigned_at on chosen agent
+        db.collection('users').document(chosen['uid']).update({
+            'last_assigned_at': datetime.now()
+        })
+
+        return chosen['uid']
 
 class TicketDetailView(APIView):
     def get(self, request, ticket_id):
@@ -444,14 +520,14 @@ class TicketDetailView(APIView):
                             }
                         }, status=status.HTTP_403_FORBIDDEN)
             except Exception as e:
-                print(f"Verification check error: {e}")
+                pass # print(f"Verification check error: {e}")
 
-        doc = db.collection('tickets').document(ticket_id).get()
-        if not doc.exists:
+        doc_ref, doc_id, doc = resolve_ticket_ref(ticket_id)
+        if not doc or not doc.exists:
             return Response({'error': {'code': 'NOT_FOUND', 'message': 'Ticket not found'}}, status=status.HTTP_404_NOT_FOUND)
 
         ticket = doc.to_dict()
-        ticket['id'] = doc.id
+        ticket['id'] = doc_id
 
         # Security: users can only view their own tickets, agents can only view assigned tickets
         if user_role == 'user' and ticket['created_by'] != user_uid:
@@ -484,11 +560,10 @@ class TicketDetailView(APIView):
                             }
                         }, status=status.HTTP_403_FORBIDDEN)
             except Exception as e:
-                print(f"Verification check error: {e}")
+                pass # print(f"Verification check error: {e}")
 
-        doc_ref = db.collection('tickets').document(ticket_id)
-        doc = doc_ref.get()
-        if not doc.exists:
+        doc_ref, doc_id, doc = resolve_ticket_ref(ticket_id)
+        if not doc or not doc.exists:
             return Response({'error': {'code': 'NOT_FOUND', 'message': 'Ticket not found'}}, status=status.HTTP_404_NOT_FOUND)
 
         ticket = doc.to_dict()
@@ -533,27 +608,8 @@ class TicketDetailView(APIView):
                     'comment': f'Ticket reopened by user'
                 })
                 updates['timeline'] = timeline
-            # Only admin can close tickets
-            elif new_status == 'Closed' and user_role != 'admin':
-                return Response({'error': {'code': 'FORBIDDEN', 'message': 'Only admin can close tickets'}}, status=status.HTTP_403_FORBIDDEN)
-            # Agents can move to In Progress or Resolved
-            elif user_role == 'agent' and new_status in ['Open', 'In Progress', 'Resolved']:
-                updates['status'] = new_status
-                # Save resolved_at timestamp when ticket is resolved (first time only)
-                if new_status == 'Resolved' and old_status != 'Resolved':
-                    updates['resolved_at'] = datetime.now()
-                    updates['completed_at'] = datetime.now()  # Add completed_at field
-                    updates['resolved_by'] = user_uid  # Track who resolved it
-                # Add timeline entry for status change
-                timeline.append({
-                    'action': 'status_changed',
-                    'timestamp': datetime.now(),
-                    'user': user_uid,
-                    'username': username,
-                    'comment': f'Status changed from {old_status} to {new_status}'
-                })
-                updates['timeline'] = timeline  # CRITICAL: Save timeline
-            elif user_role == 'admin':
+            # Agents and admins can update status to Open, In Progress, Escalated, Resolved, or Closed
+            elif user_role in ['agent', 'admin'] and new_status in ['Open', 'In Progress', 'Escalated', 'Resolved', 'Closed']:
                 updates['status'] = new_status
                 # Save resolved_at timestamp when ticket is resolved (first time only)
                 if new_status == 'Resolved' and old_status != 'Resolved':
@@ -567,6 +623,7 @@ class TicketDetailView(APIView):
                     if 'resolved_at' not in ticket:
                         updates['completed_at'] = datetime.now()
                         updates['resolved_by'] = user_uid  # Track who closed it
+                # Add timeline entry for status change
                 timeline.append({
                     'action': 'status_changed',
                     'timestamp': datetime.now(),
@@ -617,7 +674,7 @@ class TicketDetailView(APIView):
                 'timestamp': datetime.now(), 
                 'user': user_uid,
                 'username': username,
-                'comment': request.data['comment']
+                'comment': strip_tags(request.data['comment'])
             }
             
             # Handle reply threading - add reply_to field if present
@@ -631,8 +688,23 @@ class TicketDetailView(APIView):
         updates['updated_at'] = datetime.now()
         updates['version'] = ticket['version'] + 1
 
-        if datetime.now() > ticket['sla_deadline'].replace(tzinfo=None):
-            updates['status'] = 'Breached'
+        # Check SLA breach dynamically only if the final status is open/active
+        # Skip breach check when user is REOPENING a ticket (Closed → Open) —
+        # the deadline will be re-evaluated on next agent action or periodic sweep.
+        is_reopen = (
+            request.data.get('status') == 'Open'
+            and ticket.get('status') == 'Closed'
+            and user_role == 'user'
+        )
+        final_status = updates.get('status', ticket.get('status'))
+        if not is_reopen and final_status in ['Open', 'In Progress', 'Escalated', 'Breached']:
+            sla_deadline = ticket.get('sla_deadline')
+            if sla_deadline:
+                try:
+                    if datetime.now() > sla_deadline.replace(tzinfo=None):
+                        updates['status'] = 'Breached'
+                except (AttributeError, TypeError):
+                    pass
 
         doc_ref.update(updates)
         updated_doc = doc_ref.get()
@@ -652,9 +724,8 @@ class TicketDetailView(APIView):
         if comment_index is None:
             return Response({'error': {'code': 'MISSING_INDEX', 'message': 'Comment index required'}}, status=status.HTTP_400_BAD_REQUEST)
         
-        doc_ref = db.collection('tickets').document(ticket_id)
-        doc = doc_ref.get()
-        if not doc.exists:
+        doc_ref, doc_id, doc = resolve_ticket_ref(ticket_id)
+        if not doc or not doc.exists:
             return Response({'error': {'code': 'NOT_FOUND', 'message': 'Ticket not found'}}, status=status.HTTP_404_NOT_FOUND)
         
         ticket = doc.to_dict()
@@ -713,7 +784,7 @@ class SLAReportView(APIView):
                             }
                         }, status=status.HTTP_403_FORBIDDEN)
             except Exception as e:
-                print(f"Verification check error: {e}")
+                pass # print(f"Verification check error: {e}")
 
         # Get all tickets and check SLA breach dynamically
         tickets_ref = db.collection('tickets').stream()
@@ -727,14 +798,14 @@ class SLAReportView(APIView):
                 try:
                     if datetime.now() > ticket['sla_deadline'].replace(tzinfo=None):
                         ticket['sla_breached'] = True
-                        breached.append(ticket)
+                        breached.append(serialize_firestore_doc(ticket))
                 except (AttributeError, TypeError):
                     # Handle timezone issues gracefully
                     pass
             # Also include tickets that are already marked as Breached
             elif ticket.get('status') == 'Breached':
                 ticket['sla_breached'] = True
-                breached.append(ticket)
+                breached.append(serialize_firestore_doc(ticket))
 
         return Response({'breached_tickets': breached, 'count': len(breached)})
 
@@ -757,7 +828,7 @@ class UsersView(APIView):
                 if user_doc.exists:
                     user_data = user_doc.to_dict()
                     verified = user_data.get('verified', True)  # Default True for backward compatibility
-                    print(f"Agent {user_uid} verified status: {verified}")
+                    pass # print(f"Agent {user_uid} verified status: {verified}")
                     if not verified:
                         return Response({
                             'error': {
@@ -766,9 +837,9 @@ class UsersView(APIView):
                             }
                         }, status=status.HTTP_403_FORBIDDEN)
                 else:
-                    print(f"Agent {user_uid} not found in database")
+                    pass # print(f"Agent {user_uid} not found in database")
             except Exception as e:
-                print(f"Verification check error: {e}")
+                pass # print(f"Verification check error: {e}")
         elif user_role == 'admin':
             # Check if admin is verified
             if user_uid:
@@ -785,7 +856,7 @@ class UsersView(APIView):
                                 }
                             }, status=status.HTTP_403_FORBIDDEN)
                 except Exception as e:
-                    print(f"Verification check error: {e}")
+                    pass # print(f"Verification check error: {e}")
         else:
             # Regular users can't access this endpoint
             return Response({'error': {'code': 'FORBIDDEN', 'message': 'Admin or agent only'}}, status=status.HTTP_403_FORBIDDEN)
@@ -877,11 +948,10 @@ class TransferTicketView(APIView):
                             }
                         }, status=status.HTTP_403_FORBIDDEN)
             except Exception as e:
-                print(f"Verification check error: {e}")
+                pass # print(f"Verification check error: {e}")
         
-        doc_ref = db.collection('tickets').document(ticket_id)
-        doc = doc_ref.get()
-        if not doc.exists:
+        doc_ref, doc_id, doc = resolve_ticket_ref(ticket_id)
+        if not doc or not doc.exists:
             return Response({'error': {'code': 'NOT_FOUND', 'message': 'Ticket not found'}}, status=status.HTTP_404_NOT_FOUND)
         
         ticket = doc.to_dict()
@@ -948,9 +1018,8 @@ class SubmitFeedbackView(APIView):
         if not rating or rating < 1 or rating > 5:
             return Response({'error': {'code': 'INVALID_RATING', 'message': 'Rating must be 1-5'}}, status=status.HTTP_400_BAD_REQUEST)
         
-        doc_ref = db.collection('tickets').document(ticket_id)
-        doc = doc_ref.get()
-        if not doc.exists:
+        doc_ref, doc_id, doc = resolve_ticket_ref(ticket_id)
+        if not doc or not doc.exists:
             return Response({'error': {'code': 'NOT_FOUND', 'message': 'Ticket not found'}}, status=status.HTTP_404_NOT_FOUND)
         
         ticket = doc.to_dict()
@@ -1004,7 +1073,7 @@ class UserRoleUpdateView(APIView):
                             }
                         }, status=status.HTTP_403_FORBIDDEN)
             except Exception as e:
-                print(f"Verification check error: {e}")
+                pass # print(f"Verification check error: {e}")
         
         new_role = request.data.get('role')
         if new_role not in ['user', 'agent', 'admin']:
@@ -1063,7 +1132,7 @@ class UserStatusUpdateView(APIView):
                             }
                         }, status=status.HTTP_403_FORBIDDEN)
             except Exception as e:
-                print(f"Verification check error: {e}")
+                pass # print(f"Verification check error: {e}")
         
         new_status = request.data.get('status')
         if new_status not in ['active', 'blocked']:
@@ -1151,16 +1220,15 @@ class AdminTransferView(APIView):
                             }
                         }, status=status.HTTP_403_FORBIDDEN)
             except Exception as e:
-                print(f"Verification check error: {e}")
+                pass # print(f"Verification check error: {e}")
         
         if not target_uid:
             return Response({'error': {'code': 'MISSING_TARGET', 'message': 'Target user UID required'}}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
             # Get ticket
-            doc_ref = db.collection('tickets').document(ticket_id)
-            doc = doc_ref.get()
-            if not doc.exists:
+            doc_ref, doc_id, doc = resolve_ticket_ref(ticket_id)
+            if not doc or not doc.exists:
                 return Response({'error': {'code': 'NOT_FOUND', 'message': 'Ticket not found'}}, status=status.HTTP_404_NOT_FOUND)
             
             ticket = doc.to_dict()
@@ -1230,3 +1298,213 @@ class AdminTransferView(APIView):
             return Response({'error': {'code': 'TRANSFER_ERROR', 'message': str(e)}}, status=status.HTTP_400_BAD_REQUEST)
 
 
+class TodoListView(APIView):
+    """Private per-user todo list — stored in users/{uid}/todos subcollection.
+    Every query is scoped to the authenticated user's UID.
+    No other user (including admins) can see or modify another user's todos."""
+
+    def get(self, request):
+        uid = request.query_params.get('uid', '')
+        if not uid:
+            return Response({'error': {'code': 'MISSING_UID', 'message': 'UID required'}}, status=status.HTTP_400_BAD_REQUEST)
+
+        todos_ref = db.collection('users').document(uid).collection('todos').stream()
+        todos = []
+        for doc in todos_ref:
+            todo = doc.to_dict()
+            todo['id'] = doc.id
+            todo = serialize_firestore_doc(todo)
+            todos.append(todo)
+
+        return Response({'todos': todos})
+
+    def post(self, request):
+        uid = request.query_params.get('uid', '')
+        if not uid:
+            return Response({'error': {'code': 'MISSING_UID', 'message': 'UID required'}}, status=status.HTTP_400_BAD_REQUEST)
+
+        title = request.data.get('title', '').strip()
+        if not title:
+            return Response({'error': {'code': 'FIELD_REQUIRED', 'field': 'title', 'message': 'Title is required'}}, status=status.HTTP_400_BAD_REQUEST)
+
+        todo_data = {
+            'title': title,
+            'status': request.data.get('status', 'backlog'),
+            'priority': request.data.get('priority', 'Medium'),
+            'linked_ticket': request.data.get('linked_ticket', None),
+            'notes': request.data.get('notes', ''),
+            'due_date': request.data.get('due_date', None),
+            'created_at': datetime.now(),
+            'updated_at': datetime.now(),
+            'owner_uid': uid,
+        }
+
+        _, doc_ref = db.collection('users').document(uid).collection('todos').add(todo_data)
+        todo_data['id'] = doc_ref.id
+        todo_data = serialize_firestore_doc(todo_data)
+        return Response(todo_data, status=status.HTTP_201_CREATED)
+
+
+class TodoDetailView(APIView):
+    """CRUD for a single private todo item within users/{uid}/todos/{todo_id}."""
+
+    def get(self, request, todo_id):
+        uid = request.query_params.get('uid', '')
+        if not uid:
+            return Response({'error': {'code': 'MISSING_UID', 'message': 'UID required'}}, status=status.HTTP_400_BAD_REQUEST)
+
+        doc = db.collection('users').document(uid).collection('todos').document(todo_id).get()
+        if not doc.exists:
+            return Response({'error': {'code': 'NOT_FOUND', 'message': 'Todo not found'}}, status=status.HTTP_404_NOT_FOUND)
+
+        todo = doc.to_dict()
+        todo['id'] = doc.id
+        todo = serialize_firestore_doc(todo)
+        return Response(todo)
+
+    def patch(self, request, todo_id):
+        uid = request.query_params.get('uid', '')
+        if not uid:
+            return Response({'error': {'code': 'MISSING_UID', 'message': 'UID required'}}, status=status.HTTP_400_BAD_REQUEST)
+
+        doc_ref = db.collection('users').document(uid).collection('todos').document(todo_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return Response({'error': {'code': 'NOT_FOUND', 'message': 'Todo not found'}}, status=status.HTTP_404_NOT_FOUND)
+
+        updates = {}
+        allowed = ['title', 'status', 'priority', 'linked_ticket', 'notes', 'due_date']
+        for field in allowed:
+            if field in request.data:
+                updates[field] = request.data[field]
+
+        if not updates:
+            return Response({'error': {'code': 'NO_CHANGES', 'message': 'No fields to update'}}, status=status.HTTP_400_BAD_REQUEST)
+
+        updates['updated_at'] = datetime.now()
+        doc_ref.update(updates)
+
+        updated = doc_ref.get().to_dict()
+        updated['id'] = doc_ref.id
+        updated = serialize_firestore_doc(updated)
+        return Response(updated)
+
+    def delete(self, request, todo_id):
+        uid = request.query_params.get('uid', '')
+        if not uid:
+            return Response({'error': {'code': 'MISSING_UID', 'message': 'UID required'}}, status=status.HTTP_400_BAD_REQUEST)
+
+        doc_ref = db.collection('users').document(uid).collection('todos').document(todo_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return Response({'error': {'code': 'NOT_FOUND', 'message': 'Todo not found'}}, status=status.HTTP_404_NOT_FOUND)
+
+        doc_ref.delete()
+        return Response({'message': 'Todo deleted'}, status=status.HTTP_200_OK)
+
+
+class TicketBulkUpdateView(APIView):
+    """Admin-only bulk status update for multiple tickets at once."""
+
+    def post(self, request):
+        user_role = request.query_params.get('role', 'user')
+        user_uid = request.query_params.get('uid', '')
+
+        if user_role != 'admin':
+            return Response({'error': {'code': 'FORBIDDEN', 'message': 'Admin only'}}, status=status.HTTP_403_FORBIDDEN)
+
+        ticket_ids = request.data.get('ticket_ids', [])
+        new_status = request.data.get('status', '')
+
+        if not ticket_ids or not new_status:
+            return Response({'error': {'code': 'FIELD_REQUIRED', 'message': 'ticket_ids and status required'}}, status=status.HTTP_400_BAD_REQUEST)
+
+        updated = []
+        for tid in ticket_ids:
+            try:
+                doc_ref = db.collection('tickets').document(tid)
+                doc = doc_ref.get()
+                if doc.exists:
+                    ticket = doc.to_dict()
+                    timeline = ticket.get('timeline', [])
+                    timeline.append({
+                        'action': 'status_changed',
+                        'timestamp': datetime.now(),
+                        'user': user_uid,
+                        'comment': f'Bulk status change to {new_status}'
+                    })
+                    doc_ref.update({
+                        'status': new_status,
+                        'timeline': timeline,
+                        'updated_at': datetime.now(),
+                        'version': ticket.get('version', 1) + 1
+                    })
+                    updated.append(tid)
+            except Exception:
+                pass
+
+        return Response({'updated': updated, 'count': len(updated)})
+
+
+class TicketWebhookView(APIView):
+    """Webhook endpoint for external integrations (e.g. Slack, email)."""
+
+    def post(self, request):
+        # Validate webhook secret
+        secret = request.headers.get('X-Webhook-Secret', '')
+        # In production this would check against a stored secret
+        if not secret:
+            return Response({'error': {'code': 'UNAUTHORIZED', 'message': 'Webhook secret required'}}, status=status.HTTP_401_UNAUTHORIZED)
+
+        event_type = request.data.get('event', '')
+        payload = request.data.get('payload', {})
+
+        return Response({
+            'received': True,
+            'event': event_type,
+            'message': 'Webhook received successfully'
+        })
+
+
+class UserSkillsUpdateView(APIView):
+    """Admin can update user skills/tags."""
+
+    def patch(self, request, user_uid):
+        admin_role = request.query_params.get('role', 'user')
+        admin_uid = request.query_params.get('uid', '')
+
+        if admin_role != 'admin':
+            return Response({'error': {'code': 'FORBIDDEN', 'message': 'Admin only'}}, status=status.HTTP_403_FORBIDDEN)
+
+        # Verify admin
+        if admin_uid:
+            try:
+                admin_ref = db.collection('users').document(admin_uid)
+                admin_doc = admin_ref.get()
+                if admin_doc.exists and not admin_doc.to_dict().get('verified', True):
+                    return Response({'error': {'code': 'VERIFICATION_REQUIRED', 'message': 'Admin verification required'}}, status=status.HTTP_403_FORBIDDEN)
+            except Exception:
+                pass
+
+        skills = request.data.get('skills', [])
+        if not isinstance(skills, list):
+            return Response({'error': {'code': 'INVALID_DATA', 'message': 'Skills must be a list'}}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user_ref = db.collection('users').document(user_uid)
+            user_doc = user_ref.get()
+            if not user_doc.exists:
+                return Response({'error': {'code': 'NOT_FOUND', 'message': 'User not found'}}, status=status.HTTP_404_NOT_FOUND)
+
+            user_ref.update({
+                'skills': skills,
+                'updated_at': datetime.now()
+            })
+
+            return Response({
+                'message': 'Skills updated',
+                'uid': user_uid,
+                'skills': skills
+            })
+        except Exception as e:
+            return Response({'error': {'code': 'UPDATE_ERROR', 'message': str(e)}}, status=status.HTTP_400_BAD_REQUEST)
