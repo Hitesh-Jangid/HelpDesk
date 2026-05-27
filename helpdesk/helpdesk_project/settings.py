@@ -13,12 +13,6 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 import os
 from pathlib import Path
 
-
-def env_list(name, default):
-    value = os.environ.get(name, default)
-    return [item.strip() for item in value.split(',') if item.strip()]
-
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -153,14 +147,7 @@ CACHES = {
 }
 
 # CORS settings
-CORS_ALLOWED_ORIGINS = env_list(
-    'CORS_ALLOWED_ORIGINS',
-    'http://localhost:5173,http://127.0.0.1:5173,https://hitesh-jangid.github.io',
-)
-CSRF_TRUSTED_ORIGINS = env_list(
-    'CSRF_TRUSTED_ORIGINS',
-    'http://localhost:5173,http://127.0.0.1:5173,https://hitesh-jangid.github.io',
-)
+CORS_ALLOW_ALL_ORIGINS = True
 
 # REST Framework settings
 REST_FRAMEWORK = {
