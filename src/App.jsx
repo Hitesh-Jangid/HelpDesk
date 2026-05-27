@@ -64,10 +64,12 @@ function AppContent() {
 }
 
 export default function App() {
+  const routerBasename = import.meta.env.BASE_URL || '/';
+
   return (
     <AppThemeProvider>
       <AuthProvider>
-        <Router>
+        <Router basename={routerBasename}>
           <ErrorBoundary>
             <AppContent />
           </ErrorBoundary>
